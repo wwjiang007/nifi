@@ -15,9 +15,39 @@
  * limitations under the License.
  */
 
-/* global nf, d3 */
+/* global define, module, require, exports */
 
-nf.ContextMenu = (function () {
+(function (root, factory) {
+    if (typeof define === 'function' && define.amd) {
+        define(['jquery',
+                'd3',
+                'nf.ErrorHandler',
+                'nf.Common',
+                'nf.CanvasUtils',
+                'nf.ng.Bridge'],
+            function ($, d3, errorHandler, common, canvasUtils, angularBridge) {
+                return (nf.ContextMenu = factory($, d3, errorHandler, common, canvasUtils, angularBridge));
+            });
+    } else if (typeof exports === 'object' && typeof module === 'object') {
+        module.exports = (nf.ContextMenu =
+            factory(require('jquery'),
+                require('d3'),
+                require('nf.ErrorHandler'),
+                require('nf.Common'),
+                require('nf.CanvasUtils'),
+                require('nf.ng.Bridge')));
+    } else {
+        nf.ContextMenu = factory(root.$,
+            root.d3,
+            root.nf.ErrorHandler,
+            root.nf.Common,
+            root.nf.CanvasUtils,
+            root.nf.ng.Bridge);
+    }
+}(this, function ($, d3, errorHandler, common, canvasUtils, angularBridge) {
+    'use strict';
+
+    var nfActions;
 
     /**
      * Returns whether the current group is not the root group.
@@ -25,57 +55,111 @@ nf.ContextMenu = (function () {
      * @param {selection} selection         The selection of currently selected components
      */
     var isNotRootGroup = function (selection) {
-        return nf.Canvas.getParentGroupId() !== null && selection.empty();
+        return canvasUtils.getParentGroupId() !== null && selection.empty();
     };
 
     /**
      * Determines whether the component in the specified selection is configurable.
-     * 
+     *
      * @param {selection} selection         The selection of currently selected components
      */
     var isConfigurable = function (selection) {
-        return nf.CanvasUtils.isConfigurable(selection);
+        return canvasUtils.isConfigurable(selection);
     };
 
     /**
      * Determines whether the component in the specified selection has configuration details.
-     * 
+     *
      * @param {selection} selection         The selection of currently selected components
      */
     var hasDetails = function (selection) {
-        return nf.CanvasUtils.hasDetails(selection);
+        return canvasUtils.hasDetails(selection);
     };
 
     /**
      * Determines whether the components in the specified selection are deletable.
-     * 
-     * @param {selection} selection         The selection of currently selected components 
+     *
+     * @param {selection} selection         The selection of currently selected components
      */
     var isDeletable = function (selection) {
-        return nf.CanvasUtils.areDeletable(selection);
+        return canvasUtils.areDeletable(selection);
+    };
+
+    /**
+     * Determines whether user can create a template from the components in the specified selection.
+     *
+     * @param {selection} selection         The selection of currently selected components
+     */
+    var canCreateTemplate = function (selection) {
+        return canvasUtils.canWrite() && (selection.empty() && canvasUtils.canRead(selection));
+    };
+
+    /**
+     * Determines whether user can upload a template.
+     *
+     * @param {selection} selection         The selection of currently selected components
+     */
+    var canUploadTemplate = function (selection) {
+        return canvasUtils.canWrite() && selection.empty();
+    };
+
+    /**
+     * Determines whether components in the specified selection are group-able.
+     *
+     * @param {selection} selection         The selection of currently selected components
+     */
+    var canGroup = function (selection) {
+        return canvasUtils.getComponentByType('Connection').isDisconnected(selection) && canvasUtils.canModify(selection);
+    };
+
+    /**
+     * Determines whether components in the specified selection are enable-able.
+     *
+     * @param {selection} selection         The selection of currently selected components
+     */
+    var canEnable = function (selection) {
+        return canvasUtils.canEnable(selection);
+    };
+
+    /**
+     * Determines whether components in the specified selection are diable-able.
+     *
+     * @param {selection} selection         The selection of currently selected components
+     */
+    var canDisable = function (selection) {
+        return canvasUtils.canDisable(selection);
+    };
+
+    /**
+     * Determines whether user can manage policies of the components in the specified selection.
+     *
+     * @param {selection} selection         The selection of currently selected components
+     */
+    var canManagePolicies = function (selection) {
+        return canvasUtils.isConfigurableAuthorizer() && canvasUtils.canManagePolicies(selection);
     };
 
     /**
      * Determines whether the components in the specified selection are runnable.
-     * 
-     * @param {selection} selection         The selection of currently selected components 
+     *
+     * @param {selection} selection         The selection of currently selected components
      */
     var isRunnable = function (selection) {
-        return nf.CanvasUtils.areRunnable(selection);
+        return canvasUtils.areRunnable(selection);
     };
 
     /**
      * Determines whether the components in the specified selection are stoppable.
-     * 
-     * @param {selection} selection         The selection of currently selected components 
+     *
+     * @param {selection} selection         The selection of currently selected components
      */
     var isStoppable = function (selection) {
-        return nf.CanvasUtils.areStoppable(selection);
+        return canvasUtils.areStoppable(selection);
     };
 
     /**
      * Determines whether the components in the specified selection support stats.
-     * 
+     *
      * @param {selection} selection         The selection of currently selected components
      */
     var supportsStats = function (selection) {
@@ -84,12 +168,12 @@ nf.ContextMenu = (function () {
             return false;
         }
 
-        return nf.CanvasUtils.isProcessor(selection) || nf.CanvasUtils.isProcessGroup(selection) || nf.CanvasUtils.isRemoteProcessGroup(selection) || nf.CanvasUtils.isConnection(selection);
+        return canvasUtils.isProcessor(selection) || canvasUtils.isProcessGroup(selection) || canvasUtils.isRemoteProcessGroup(selection) || canvasUtils.isConnection(selection);
     };
 
     /**
      * Determines whether the components in the specified selection has usage documentation.
-     * 
+     *
      * @param {selection} selection         The selection of currently selected components
      */
     var hasUsage = function (selection) {
@@ -97,43 +181,43 @@ nf.ContextMenu = (function () {
         if (selection.size() !== 1) {
             return false;
         }
-        if (nf.CanvasUtils.canRead(selection) === false) {
+        if (canvasUtils.canRead(selection) === false) {
             return false;
         }
 
-        return nf.CanvasUtils.isProcessor(selection);
+        return canvasUtils.isProcessor(selection);
     };
 
     /**
      * Determines whether there is one component selected.
-     * 
+     *
      * @param {selection} selection         The selection of currently selected components
      */
     var isNotConnection = function (selection) {
-        return selection.size() === 1 && !nf.CanvasUtils.isConnection(selection);
+        return selection.size() === 1 && !canvasUtils.isConnection(selection);
     };
 
     /**
      * Determines whether the components in the specified selection are copyable.
-     * 
+     *
      * @param {selection} selection         The selection of currently selected components
      */
     var isCopyable = function (selection) {
-        return nf.CanvasUtils.isCopyable(selection);
+        return canvasUtils.isCopyable(selection);
     };
 
     /**
      * Determines whether the components in the specified selection are pastable.
-     * 
+     *
      * @param {selection} selection         The selection of currently selected components
      */
     var isPastable = function (selection) {
-        return nf.CanvasUtils.isPastable();
+        return canvasUtils.isPastable();
     };
 
     /**
      * Determines whether the specified selection is empty.
-     * 
+     *
      * @param {selection} selection         The seleciton
      */
     var emptySelection = function (selection) {
@@ -142,7 +226,7 @@ nf.ContextMenu = (function () {
 
     /**
      * Determines whether the componets in the specified selection support being moved to the front.
-     * 
+     *
      * @param {selection} selection         The selection
      */
     var canMoveToFront = function (selection) {
@@ -150,11 +234,11 @@ nf.ContextMenu = (function () {
         if (selection.size() !== 1) {
             return false;
         }
-        if (nf.CanvasUtils.canModify(selection) === false) {
+        if (canvasUtils.canModify(selection) === false) {
             return false;
         }
 
-        return nf.CanvasUtils.isConnection(selection);
+        return canvasUtils.isConnection(selection);
     };
 
     /**
@@ -163,7 +247,7 @@ nf.ContextMenu = (function () {
      * @param {selection} selection          The selection
      */
     var canAlign = function (selection) {
-        return nf.CanvasUtils.canAlign(selection);
+        return canvasUtils.canAlign(selection);
     };
 
     /**
@@ -172,12 +256,12 @@ nf.ContextMenu = (function () {
      * @param {selection} selection          The selection
      */
     var isColorable = function (selection) {
-        return nf.CanvasUtils.isColorable(selection);
+        return canvasUtils.isColorable(selection);
     };
 
     /**
      * Determines whether the component in the specified selection is a connection.
-     * 
+     *
      * @param {selection} selection         The selection
      */
     var isConnection = function (selection) {
@@ -186,12 +270,12 @@ nf.ContextMenu = (function () {
             return false;
         }
 
-        return nf.CanvasUtils.isConnection(selection);
+        return canvasUtils.isConnection(selection);
     };
 
     /**
      * Determines whether the component in the specified selection could possibly have downstream components.
-     * 
+     *
      * @param {selection} selection         The selection
      */
     var hasDownstream = function (selection) {
@@ -200,14 +284,14 @@ nf.ContextMenu = (function () {
             return false;
         }
 
-        return nf.CanvasUtils.isFunnel(selection) || nf.CanvasUtils.isProcessor(selection) || nf.CanvasUtils.isProcessGroup(selection) ||
-                nf.CanvasUtils.isRemoteProcessGroup(selection) || nf.CanvasUtils.isInputPort(selection) ||
-                (nf.CanvasUtils.isOutputPort(selection) && nf.Canvas.getParentGroupId() !== null);
+        return canvasUtils.isFunnel(selection) || canvasUtils.isProcessor(selection) || canvasUtils.isProcessGroup(selection) ||
+            canvasUtils.isRemoteProcessGroup(selection) || canvasUtils.isInputPort(selection) ||
+            (canvasUtils.isOutputPort(selection) && canvasUtils.getParentGroupId() !== null);
     };
 
     /**
      * Determines whether the component in the specified selection could possibly have upstream components.
-     * 
+     *
      * @param {selection} selection         The selection
      */
     var hasUpstream = function (selection) {
@@ -216,9 +300,9 @@ nf.ContextMenu = (function () {
             return false;
         }
 
-        return nf.CanvasUtils.isFunnel(selection) || nf.CanvasUtils.isProcessor(selection) || nf.CanvasUtils.isProcessGroup(selection) ||
-                nf.CanvasUtils.isRemoteProcessGroup(selection) || nf.CanvasUtils.isOutputPort(selection) ||
-                (nf.CanvasUtils.isInputPort(selection) && nf.Canvas.getParentGroupId() !== null);
+        return canvasUtils.isFunnel(selection) || canvasUtils.isProcessor(selection) || canvasUtils.isProcessGroup(selection) ||
+            canvasUtils.isRemoteProcessGroup(selection) || canvasUtils.isOutputPort(selection) ||
+            (canvasUtils.isInputPort(selection) && canvasUtils.getParentGroupId() !== null);
     };
 
     /**
@@ -231,11 +315,11 @@ nf.ContextMenu = (function () {
         if (selection.size() !== 1) {
             return false;
         }
-        if (nf.CanvasUtils.canRead(selection) === false || nf.CanvasUtils.canModify(selection) === false) {
+        if (canvasUtils.canRead(selection) === false || canvasUtils.canModify(selection) === false) {
             return false;
         }
 
-        if (nf.CanvasUtils.isProcessor(selection)) {
+        if (canvasUtils.isProcessor(selection)) {
             var processorData = selection.datum();
             return processorData.component.persistsState === true;
         } else {
@@ -245,7 +329,7 @@ nf.ContextMenu = (function () {
 
     /**
      * Determines whether the current selection is a process group.
-     * 
+     *
      * @param {selection} selection
      */
     var isProcessGroup = function (selection) {
@@ -254,7 +338,7 @@ nf.ContextMenu = (function () {
             return false;
         }
 
-        return nf.CanvasUtils.isProcessGroup(selection);
+        return canvasUtils.isProcessGroup(selection);
     };
 
     /**
@@ -268,56 +352,56 @@ nf.ContextMenu = (function () {
             return false;
         }
 
-        return !nf.CanvasUtils.isLabel(selection) && !nf.CanvasUtils.isConnection(selection) && !nf.CanvasUtils.isProcessGroup(selection)
-            && !nf.CanvasUtils.isRemoteProcessGroup(selection) && nf.Common.canAccessProvenance();
+        return !canvasUtils.isLabel(selection) && !canvasUtils.isConnection(selection) && !canvasUtils.isProcessGroup(selection)
+            && !canvasUtils.isRemoteProcessGroup(selection) && common.canAccessProvenance();
     };
 
     /**
      * Determines whether the current selection is a remote process group.
-     * 
-     * @param {selection} selection         
+     *
+     * @param {selection} selection
      */
     var isRemoteProcessGroup = function (selection) {
         // ensure the correct number of components are selected
         if (selection.size() !== 1) {
             return false;
         }
-        if (nf.CanvasUtils.canRead(selection) === false) {
+        if (canvasUtils.canRead(selection) === false) {
             return false;
         }
 
-        return nf.CanvasUtils.isRemoteProcessGroup(selection);
+        return canvasUtils.isRemoteProcessGroup(selection);
     };
 
     /**
      * Determines if the components in the specified selection support starting transmission.
-     * 
+     *
      * @param {selection} selection
      */
     var canStartTransmission = function (selection) {
-        if (nf.CanvasUtils.canModify(selection) === false) {
+        if (canvasUtils.canModify(selection) === false) {
             return false;
         }
-        
-        return nf.CanvasUtils.canAllStartTransmitting(selection);
+
+        return canvasUtils.canAllStartTransmitting(selection);
     };
 
     /**
      * Determines if the components in the specified selection support stopping transmission.
-     * 
+     *
      * @param {selection} selection
      */
     var canStopTransmission = function (selection) {
-        if (nf.CanvasUtils.canModify(selection) === false) {
+        if (canvasUtils.canModify(selection) === false) {
             return false;
         }
-        
-        return nf.CanvasUtils.canAllStopTransmitting(selection);
+
+        return canvasUtils.canAllStopTransmitting(selection);
     };
-    
+
     /**
      * Only DFMs can empty a queue.
-     * 
+     *
      * @param {selection} selection
      */
     var canEmptyQueue = function (selection) {
@@ -332,31 +416,31 @@ nf.ContextMenu = (function () {
     var canListQueue = function (selection) {
         return isConnection(selection);
     };
-    
+
     /**
      * Determines if the components in the specified selection can be moved into a parent group.
-     * 
+     *
      * @param {type} selection
      */
     var canMoveToParent = function (selection) {
-        if (nf.CanvasUtils.canModify(selection) === false) {
+        if (canvasUtils.canModify(selection) === false) {
             return false;
         }
 
         // TODO - also check can modify in parent
-        
-        return !selection.empty() && nf.CanvasUtils.isDisconnected(selection) && nf.Canvas.getParentGroupId() !== null;
+
+        return !selection.empty() && canvasUtils.getComponentByType('Connection').isDisconnected(selection) && canvasUtils.getParentGroupId() !== null;
     };
 
     /**
      * Adds a menu item to the context menu.
-     * 
+     *
      * {
      *      click: refresh (function),
      *      text: 'Start' (string),
      *      clazz: 'fa fa-refresh'
      * }
-     * 
+     *
      * @param {jQuery} contextMenu The context menu
      * @param {object} item The menu item configuration
      */
@@ -377,10 +461,10 @@ nf.ContextMenu = (function () {
 
             // create the img and conditionally add the style
             var img = $('<div class="context-menu-item-img"></div>').addClass(item['clazz']).appendTo(menuItem);
-            if (nf.Common.isDefinedAndNotNull(item['imgStyle'])) {
+            if (common.isDefinedAndNotNull(item['imgStyle'])) {
                 img.addClass(item['imgStyle']);
             }
-            
+
             $('<div class="context-menu-item-text"></div>').text(item['text']).appendTo(menuItem);
             $('<div class="clear"></div>').appendTo(menuItem);
         }
@@ -388,7 +472,7 @@ nf.ContextMenu = (function () {
 
     /**
      * Positions and shows the context menu.
-     * 
+     *
      * @param {jQuery} contextMenu  The context menu
      * @param {object} options      The context menu configuration
      */
@@ -401,17 +485,17 @@ nf.ContextMenu = (function () {
 
     /**
      * Executes the specified action with the optional selection.
-     * 
+     *
      * @param {string} action
      * @param {selection} selection
      * @param {mouse event} evt
      */
     var executeAction = function (action, selection, evt) {
         // execute the action
-        nf.Actions[action](selection, evt);
+        nfActions[action](selection, evt);
 
         // close the context menu
-        nf.ContextMenu.hide();
+        nfContextMenu.hide();
     };
 
     // defines the available actions and the conditions which they apply
@@ -423,9 +507,12 @@ nf.ContextMenu = (function () {
         {condition: isProcessGroup, menuItem: {clazz: 'fa fa-sign-in', text: 'Enter group', action: 'enterGroup'}},
         {condition: isRunnable, menuItem: {clazz: 'fa fa-play', text: 'Start', action: 'start'}},
         {condition: isStoppable, menuItem: {clazz: 'fa fa-stop', text: 'Stop', action: 'stop'}},
+        {condition: canEnable, menuItem: {clazz: 'fa fa-flash', text: 'Enable', action: 'enable'}},
+        {condition: canDisable, menuItem: {clazz: 'icon icon-enable-false', text: 'Disable', action: 'disable'}},
+        {condition: canGroup, menuItem: {clazz: 'icon icon-group', text: 'Group', action: 'group'}},
         {condition: isRemoteProcessGroup, menuItem: {clazz: 'fa fa-cloud', text: 'Remote ports', action: 'remotePorts'}},
         {condition: canStartTransmission, menuItem: {clazz: 'fa fa-bullseye', text: 'Enable transmission', action: 'enableTransmission'}},
-        {condition: canStopTransmission, menuItem: {clazz: 'icon icon-transmit-false', text: 'Disable transmission', action: 'disableTransmission'}},
+        {condition: canStopTransmission, menuItem: { clazz: 'icon icon-transmit-false', text: 'Disable transmission', action: 'disableTransmission'}},
         {condition: supportsStats, menuItem: {clazz: 'fa fa-area-chart', text: 'Status History', action: 'showStats'}},
         {condition: canAccessProvenance, menuItem: {clazz: 'icon icon-provenance', imgStyle: 'context-menu-provenance', text: 'Data provenance', action: 'openProvenance'}},
         {condition: isStatefulProcessor, menuItem: {clazz: 'fa fa-tasks', text: 'View state', action: 'viewState'}},
@@ -445,21 +532,32 @@ nf.ContextMenu = (function () {
         {condition: canListQueue, menuItem: {clazz: 'fa fa-list', text: 'List queue', action: 'listQueue'}},
         {condition: canEmptyQueue, menuItem: {clazz: 'fa fa-minus-circle', text: 'Empty queue', action: 'emptyQueue'}},
         {condition: isDeletable, menuItem: {clazz: 'fa fa-trash', text: 'Delete', action: 'delete'}},
+        {condition: canManagePolicies, menuItem: {clazz: 'fa fa-key', text: 'Access policies', action: 'managePolicies'}},
         {condition: canAlign, menuItem: {clazz: 'fa fa-align-center', text: 'Align vertical', action: 'alignVertical'}},
-        {condition: canAlign, menuItem: {clazz: 'fa fa-align-center fa-rotate-90', text: 'Align horizontal', action: 'alignHorizontal'}}
+        {condition: canAlign, menuItem: { clazz: 'fa fa-align-center fa-rotate-90', text: 'Align horizontal', action: 'alignHorizontal'}},
+        {condition: canUploadTemplate, menuItem: {clazz: 'icon icon-template-import', text: 'Upload template', action: 'uploadTemplate'}},
+        {condition: canCreateTemplate, menuItem: {clazz: 'icon icon-template-save', text: 'Create template', action: 'template'}}
     ];
 
-    return {
-        init: function () {
-            $('#context-menu').on('contextmenu', function(evt) {
+    var nfContextMenu = {
+
+        /**
+         * Initialize the context menu.
+         *
+         * @param actions    The reference to the actions controller.
+         */
+        init: function (actions) {
+            nfActions = actions;
+
+            $('#context-menu').on('contextmenu', function (evt) {
                 // stop propagation and prevent default
                 evt.preventDefault();
                 evt.stopPropagation();
             });
         },
-        
+
         /**
-         * Shows the context menu. 
+         * Shows the context menu.
          */
         show: function () {
             var contextMenu = $('#context-menu').empty();
@@ -468,17 +566,17 @@ nf.ContextMenu = (function () {
             var breadCrumb = $('#breadcrumbs').get(0);
 
             // get the current selection
-            var selection = nf.CanvasUtils.getSelection();
+            var selection = canvasUtils.getSelection();
 
             // consider each component action for the current selection
             $.each(actions, function (_, action) {
                 // determine if this action is application for this selection
-                if (action.condition(selection)) {
+                if (action.condition(selection, canvasUtils.getComponentByType('Connection'))) {
                     var menuItem = action.menuItem;
 
                     addMenuItem(contextMenu, {
                         clazz: menuItem.clazz,
-                        imgStyle: menuItem.imgStyle, 
+                        imgStyle: menuItem.imgStyle,
                         text: menuItem.text,
                         click: function (evt) {
                             executeAction(menuItem.action, selection, evt);
@@ -505,25 +603,25 @@ nf.ContextMenu = (function () {
             });
 
             // inform Angular app incase we've click on the canvas
-            nf.ng.Bridge.digest();
+            angularBridge.digest();
         },
-        
+
         /**
          * Hides the context menu.
          */
         hide: function () {
             $('#context-menu').hide();
         },
-        
+
         /**
          * Activates the context menu for the components in the specified selection.
-         * 
+         *
          * @param {selection} components    The components to enable the context menu for
          */
         activate: function (components) {
             components.on('contextmenu.selection', function () {
                 // get the clicked component to update selection
-                nf.ContextMenu.show();
+                nfContextMenu.show();
 
                 // stop propagation and prevent default
                 d3.event.preventDefault();
@@ -531,4 +629,6 @@ nf.ContextMenu = (function () {
             });
         }
     };
-}());
+
+    return nfContextMenu;
+}));
