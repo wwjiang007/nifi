@@ -27,8 +27,8 @@
                 'nf.ErrorHandler',
                 'nf.Dialog',
                 'nf.Common'],
-            function ($, client, birdseye, graph, canvasUtils, errorHandler, dialog, common) {
-                return (nf.ng.RemoteProcessGroupComponent = factory($, client, birdseye, graph, canvasUtils, errorHandler, dialog, common));
+            function ($, nfClient, nfBirdseye, nfGraph, nfCanvasUtils, nfErrorHandler, nfDialog, nfCommon) {
+                return (nf.ng.RemoteProcessGroupComponent = factory($, nfClient, nfBirdseye, nfGraph, nfCanvasUtils, nfErrorHandler, nfDialog, nfCommon));
             });
     } else if (typeof exports === 'object' && typeof module === 'object') {
         module.exports = (nf.ng.RemoteProcessGroupComponent =
@@ -50,7 +50,7 @@
             root.nf.Dialog,
             root.nf.Common);
     }
-}(this, function ($, client, birdseye, graph, canvasUtils, errorHandler, dialog, common) {
+}(this, function ($, nfClient, nfBirdseye, nfGraph, nfCanvasUtils, nfErrorHandler, nfDialog, nfCommon) {
     'use strict';
 
     return function (serviceProvider) {
@@ -64,7 +64,7 @@
         var createRemoteProcessGroup = function (pt) {
 
             var remoteProcessGroupEntity = {
-                'revision': client.getRevision({
+                'revision': nfClient.getRevision({
                     'revision': {
                         'version': 0
                     }
@@ -78,6 +78,7 @@
                     'communicationsTimeout': $('#new-remote-process-group-timeout').val(),
                     'yieldDuration': $('#new-remote-process-group-yield-duration').val(),
                     'transportProtocol': $('#new-remote-process-group-transport-protocol-combo').combo('getSelectedOption').value,
+                    'localNetworkInterface': $('#new-remote-process-group-local-network-interface').val(),
                     'proxyHost': $('#new-remote-process-group-proxy-host').val(),
                     'proxyPort': $('#new-remote-process-group-proxy-port').val(),
                     'proxyUser': $('#new-remote-process-group-proxy-user').val(),
@@ -88,13 +89,13 @@
             // create a new processor of the defined type
             $.ajax({
                 type: 'POST',
-                url: serviceProvider.headerCtrl.toolboxCtrl.config.urls.api + '/process-groups/' + encodeURIComponent(canvasUtils.getGroupId()) + '/remote-process-groups',
+                url: serviceProvider.headerCtrl.toolboxCtrl.config.urls.api + '/process-groups/' + encodeURIComponent(nfCanvasUtils.getGroupId()) + '/remote-process-groups',
                 data: JSON.stringify(remoteProcessGroupEntity),
                 dataType: 'json',
                 contentType: 'application/json'
             }).done(function (response) {
                 // add the processor to the graph
-                graph.add({
+                nfGraph.add({
                     'remoteProcessGroups': [response]
                 }, {
                     'selectAll': true
@@ -104,10 +105,10 @@
                 $('#new-remote-process-group-dialog').modal('hide');
 
                 // update component visibility
-                graph.updateVisibility();
+                nfGraph.updateVisibility();
 
                 // update the birdseye
-                birdseye.refresh();
+                nfBirdseye.refresh();
             }).fail(function (xhr, status, error) {
                 if (xhr.status === 400) {
                     var errors = xhr.responseText.split('\n');
@@ -116,15 +117,15 @@
                     if (errors.length === 1) {
                         content = $('<span></span>').text(errors[0]);
                     } else {
-                        content = common.formatUnorderedList(errors);
+                        content = nfCommon.formatUnorderedList(errors);
                     }
 
-                    dialog.showOkDialog({
+                    nfDialog.showOkDialog({
                         dialogContent: content,
                         headerText: 'Configuration Error'
                     });
                 } else {
-                    errorHandler.handleAjaxError(xhr, status, error);
+                    nfErrorHandler.handleAjaxError(xhr, status, error);
                 }
             });
         };
@@ -155,6 +156,7 @@
                 init: function () {
                     var defaultTimeout = "30 sec";
                     var defaultYieldDuration = "10 sec";
+
                     // configure the new remote process group dialog
                     this.getElement().modal({
                         scrollableContentStyle: 'scrollable',
@@ -167,6 +169,7 @@
                                 $('#new-remote-process-group-transport-protocol-combo').combo('setSelectedOption', {
                                     value: 'RAW'
                                 });
+                                $('#new-remote-process-group-local-network-interface').val('');
                                 $('#new-remote-process-group-proxy-host').val('');
                                 $('#new-remote-process-group-proxy-port').val('');
                                 $('#new-remote-process-group-proxy-user').val('');
@@ -174,9 +177,11 @@
                             }
                         }
                     });
+
                     // set default values
                     $('#new-remote-process-group-timeout').val(defaultTimeout);
                     $('#new-remote-process-group-yield-duration').val(defaultYieldDuration);
+
                     // initialize the transport protocol combo
                     $('#new-remote-process-group-transport-protocol-combo').combo({
                         options: [{

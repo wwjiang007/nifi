@@ -24,6 +24,7 @@ import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.GenericDatumWriter;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.io.DatumWriter;
+import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hive.hcatalog.streaming.HiveEndPoint;
 import org.apache.hive.hcatalog.streaming.RecordWriter;
@@ -32,10 +33,13 @@ import org.apache.hive.hcatalog.streaming.StreamingConnection;
 import org.apache.hive.hcatalog.streaming.StreamingException;
 import org.apache.hive.hcatalog.streaming.TransactionBatch;
 import org.apache.nifi.hadoop.KerberosProperties;
+import org.apache.nifi.hadoop.SecurityUtil;
 import org.apache.nifi.stream.io.ByteArrayOutputStream;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
+import org.apache.nifi.util.hive.AuthenticationFailedException;
+import org.apache.nifi.util.hive.HiveConfigurator;
 import org.apache.nifi.util.hive.HiveOptions;
 import org.apache.nifi.util.hive.HiveWriter;
 import org.junit.Before;
@@ -58,7 +62,12 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Matchers.any;
+import static org.mockito.Matchers.anyLong;
+import static org.mockito.Matchers.anyString;
+import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for PutHiveStreaming processor.
@@ -69,6 +78,9 @@ public class TestPutHiveStreaming {
     private MockPutHiveStreaming processor;
 
     private KerberosProperties kerberosPropsWithFile;
+    private HiveConfigurator hiveConfigurator;
+    private HiveConf hiveConf;
+    private UserGroupInformation ugi;
 
     @Before
     public void setUp() throws Exception {
@@ -78,9 +90,14 @@ public class TestPutHiveStreaming {
         System.setProperty("java.security.krb5.realm", "nifi.com");
         System.setProperty("java.security.krb5.kdc", "nifi.kdc");
 
+        ugi = null;
         kerberosPropsWithFile = new KerberosProperties(new File("src/test/resources/krb5.conf"));
 
         processor = new MockPutHiveStreaming();
+        hiveConfigurator = mock(HiveConfigurator.class);
+        hiveConf = mock(HiveConf.class);
+        when(hiveConfigurator.getConfigurationFromFiles(anyString())).thenReturn(hiveConf);
+        processor.hiveConfigurator = hiveConfigurator;
         processor.setKerberosProperties(kerberosPropsWithFile);
         runner = TestRunners.newTestRunner(processor);
     }
@@ -94,6 +111,36 @@ public class TestPutHiveStreaming {
         runner.assertNotValid();
         runner.setProperty(PutHiveStreaming.TABLE_NAME, "users");
         runner.assertValid();
+        runner.run();
+    }
+
+    @Test
+    public void testUgiGetsCleared() {
+        runner.setValidateExpressionUsage(false);
+        runner.setProperty(PutHiveStreaming.METASTORE_URI, "thrift://localhost:9083");
+        runner.setProperty(PutHiveStreaming.DB_NAME, "default");
+        runner.setProperty(PutHiveStreaming.TABLE_NAME, "users");
+        processor.ugi = mock(UserGroupInformation.class);
+        runner.run();
+        assertNull(processor.ugi);
+    }
+
+    @Test
+    public void testUgiGetsSetIfSecure() throws AuthenticationFailedException, IOException {
+        when(hiveConf.get(SecurityUtil.HADOOP_SECURITY_AUTHENTICATION)).thenReturn(SecurityUtil.KERBEROS);
+        ugi = mock(UserGroupInformation.class);
+        when(hiveConfigurator.authenticate(eq(hiveConf), anyString(), anyString(), anyLong(), any())).thenReturn(ugi);
+        runner.setValidateExpressionUsage(false);
+        runner.setProperty(PutHiveStreaming.METASTORE_URI, "thrift://localhost:9083");
+        runner.setProperty(PutHiveStreaming.DB_NAME, "default");
+        runner.setProperty(PutHiveStreaming.TABLE_NAME, "users");
+        Map<String, Object> user1 = new HashMap<String, Object>() {
+            {
+                put("name", "Joe");
+                put("favorite_number", 146);
+            }
+        };
+        runner.enqueue(createAvroRecord(Collections.singletonList(user1)));
         runner.run();
     }
 
@@ -545,7 +592,7 @@ public class TestPutHiveStreaming {
             if (generateInterruptedExceptionOnCreateWriter) {
                 throw new InterruptedException();
             }
-            MockHiveWriter hiveWriter = new MockHiveWriter(endPoint, options.getTxnsPerBatch(), options.getAutoCreatePartitions(), options.getCallTimeOut(), callTimeoutPool, ugi);
+            MockHiveWriter hiveWriter = new MockHiveWriter(endPoint, options.getTxnsPerBatch(), options.getAutoCreatePartitions(), options.getCallTimeOut(), callTimeoutPool, ugi, hiveConfig);
             hiveWriter.setGenerateWriteFailure(generateWriteFailure);
             hiveWriter.setGenerateSerializationError(generateSerializationError);
             hiveWriter.setGenerateCommitFailure(generateCommitFailure);
@@ -595,9 +642,10 @@ public class TestPutHiveStreaming {
         private HiveEndPoint endPoint;
 
         public MockHiveWriter(HiveEndPoint endPoint, int txnsPerBatch, boolean autoCreatePartitions,
-                long callTimeout, ExecutorService callTimeoutPool, UserGroupInformation ugi)
+                long callTimeout, ExecutorService callTimeoutPool, UserGroupInformation ugi, HiveConf hiveConf)
                 throws InterruptedException, ConnectFailure {
-            super(endPoint, txnsPerBatch, autoCreatePartitions, callTimeout, callTimeoutPool, ugi);
+            super(endPoint, txnsPerBatch, autoCreatePartitions, callTimeout, callTimeoutPool, ugi, hiveConf);
+            assertEquals(TestPutHiveStreaming.this.ugi, ugi);
             this.endPoint = endPoint;
         }
 
@@ -632,13 +680,15 @@ public class TestPutHiveStreaming {
         }
 
         @Override
-        protected RecordWriter getRecordWriter(HiveEndPoint endPoint) throws StreamingException {
+        protected RecordWriter getRecordWriter(HiveEndPoint endPoint, UserGroupInformation ugi, HiveConf conf) throws StreamingException {
+            assertEquals(hiveConf, conf);
             return mock(RecordWriter.class);
         }
 
         @Override
-        protected StreamingConnection newConnection(UserGroupInformation ugi) throws InterruptedException, ConnectFailure {
+        protected StreamingConnection newConnection(HiveEndPoint endPoint, boolean autoCreatePartitions, HiveConf conf, UserGroupInformation ugi) throws InterruptedException, ConnectFailure {
             StreamingConnection connection = mock(StreamingConnection.class);
+            assertEquals(hiveConf, conf);
             return connection;
         }
 
