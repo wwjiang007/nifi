@@ -195,6 +195,7 @@ import org.apache.nifi.util.FormatUtils;
 import org.apache.nifi.util.NiFiProperties;
 import org.apache.nifi.util.ReflectionUtils;
 import org.apache.nifi.web.ResourceNotFoundException;
+import org.apache.nifi.web.api.dto.BatchSettingsDTO;
 import org.apache.nifi.web.api.dto.BundleDTO;
 import org.apache.nifi.web.api.dto.ConnectableDTO;
 import org.apache.nifi.web.api.dto.ConnectionDTO;
@@ -221,6 +222,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -247,7 +249,7 @@ import java.util.stream.Collectors;
 import static java.util.Objects.requireNonNull;
 
 public class FlowController implements EventAccess, ControllerServiceProvider, ReportingTaskProvider,
-    QueueProvider, Authorizable, ProvenanceAuthorizableFactory, NodeTypeProvider, IdentifierLookup {
+    QueueProvider, Authorizable, ProvenanceAuthorizableFactory, NodeTypeProvider, IdentifierLookup, ReloadComponent {
 
     // default repository implementations
     public static final String DEFAULT_FLOWFILE_REPO_IMPLEMENTATION = "org.apache.nifi.controller.repository.WriteAheadFlowFileRepository";
@@ -1049,7 +1051,7 @@ public class FlowController implements EventAccess, ControllerServiceProvider, R
      * instantiated for any reason
      */
     public ProcessorNode createProcessor(final String type, String id, final BundleCoordinate coordinate, final boolean firstTimeAdded) throws ProcessorInstantiationException {
-        return createProcessor(type, id, coordinate, firstTimeAdded, true);
+        return createProcessor(type, id, coordinate, Collections.emptySet(), firstTimeAdded, true);
     }
 
     /**
@@ -1069,14 +1071,14 @@ public class FlowController implements EventAccess, ControllerServiceProvider, R
      * @throws ProcessorInstantiationException if the processor cannot be
      * instantiated for any reason
      */
-    public ProcessorNode createProcessor(final String type, String id, final BundleCoordinate coordinate, final boolean firstTimeAdded, final boolean registerLogObserver)
-            throws ProcessorInstantiationException {
+    public ProcessorNode createProcessor(final String type, String id, final BundleCoordinate coordinate, final Set<URL> additionalUrls,
+                                         final boolean firstTimeAdded, final boolean registerLogObserver) throws ProcessorInstantiationException {
         id = id.intern();
 
         boolean creationSuccessful;
         LoggableComponent<Processor> processor;
         try {
-            processor = instantiateProcessor(type, id, coordinate);
+            processor = instantiateProcessor(type, id, coordinate, additionalUrls);
             creationSuccessful = true;
         } catch (final ProcessorInstantiationException pie) {
             LOG.error("Could not create Processor of type " + type + " for ID " + id + "; creating \"Ghost\" implementation", pie);
@@ -1090,12 +1092,12 @@ public class FlowController implements EventAccess, ControllerServiceProvider, R
         final ValidationContextFactory validationContextFactory = new StandardValidationContextFactory(controllerServiceProvider, variableRegistry);
         final ProcessorNode procNode;
         if (creationSuccessful) {
-            procNode = new StandardProcessorNode(processor, id, validationContextFactory, processScheduler, controllerServiceProvider, nifiProperties, variableRegistry);
+            procNode = new StandardProcessorNode(processor, id, validationContextFactory, processScheduler, controllerServiceProvider, nifiProperties, variableRegistry, this);
         } else {
             final String simpleClassName = type.contains(".") ? StringUtils.substringAfterLast(type, ".") : type;
             final String componentType = "(Missing) " + simpleClassName;
             procNode = new StandardProcessorNode(
-                    processor, id, validationContextFactory, processScheduler, controllerServiceProvider, componentType, type, nifiProperties, variableRegistry, true);
+                    processor, id, validationContextFactory, processScheduler, controllerServiceProvider, componentType, type, nifiProperties, variableRegistry, this, true);
         }
 
         final LogRepository logRepository = LogRepositoryFactory.getRepository(id);
@@ -1153,7 +1155,9 @@ public class FlowController implements EventAccess, ControllerServiceProvider, R
         return procNode;
     }
 
-    private LoggableComponent<Processor> instantiateProcessor(final String type, final String identifier, final BundleCoordinate bundleCoordinate) throws ProcessorInstantiationException {
+    private LoggableComponent<Processor> instantiateProcessor(final String type, final String identifier, final BundleCoordinate bundleCoordinate, final Set<URL> additionalUrls)
+            throws ProcessorInstantiationException {
+
         final Bundle processorBundle = ExtensionManager.getBundle(bundleCoordinate);
         if (processorBundle == null) {
             throw new ProcessorInstantiationException("Unable to find bundle for coordinate " + bundleCoordinate.getCoordinate());
@@ -1161,9 +1165,9 @@ public class FlowController implements EventAccess, ControllerServiceProvider, R
 
         final ClassLoader ctxClassLoader = Thread.currentThread().getContextClassLoader();
         try {
-            final ClassLoader detectedClassLoaderForType = ExtensionManager.createInstanceClassLoader(type, identifier, processorBundle);
-            final Class<?> rawClass = Class.forName(type, true, processorBundle.getClassLoader());
-            Thread.currentThread().setContextClassLoader(detectedClassLoaderForType);
+            final ClassLoader detectedClassLoaderForInstance = ExtensionManager.createInstanceClassLoader(type, identifier, processorBundle, additionalUrls);
+            final Class<?> rawClass = Class.forName(type, true, detectedClassLoaderForInstance);
+            Thread.currentThread().setContextClassLoader(detectedClassLoaderForInstance);
 
             final Class<? extends Processor> processorClass = rawClass.asSubclass(Processor.class);
             final Processor processor = processorClass.newInstance();
@@ -1184,7 +1188,9 @@ public class FlowController implements EventAccess, ControllerServiceProvider, R
         }
     }
 
-    public void changeProcessorType(final ProcessorNode existingNode, final String newType, final BundleCoordinate bundleCoordinate) throws ProcessorInstantiationException {
+    @Override
+    public void reload(final ProcessorNode existingNode, final String newType, final BundleCoordinate bundleCoordinate, final Set<URL> additionalUrls)
+            throws ProcessorInstantiationException {
         if (existingNode == null) {
             throw new IllegalStateException("Existing ProcessorNode cannot be null");
         }
@@ -1197,13 +1203,15 @@ public class FlowController implements EventAccess, ControllerServiceProvider, R
 
         // create a new node with firstTimeAdded as true so lifecycle methods get fired
         // attempt the creation to make sure it works before firing the OnRemoved methods below
-        final ProcessorNode newNode = createProcessor(newType, id, bundleCoordinate, true, false);
+        final ProcessorNode newNode = createProcessor(newType, id, bundleCoordinate, additionalUrls, true, false);
 
         // call OnRemoved for the existing processor using the previous instance class loader
         try (final NarCloseable x = NarCloseable.withComponentNarLoader(existingInstanceClassLoader)) {
             final StandardProcessContext processContext = new StandardProcessContext(
                     existingNode, controllerServiceProvider, encryptor, getStateManagerProvider().getStateManager(id), variableRegistry);
             ReflectionUtils.quietlyInvokeMethodsWithAnnotation(OnRemoved.class, existingNode.getProcessor(), processContext);
+        } finally {
+            ExtensionManager.closeURLClassLoader(id, existingInstanceClassLoader);
         }
 
         // set the new processor in the existing node
@@ -1701,7 +1709,7 @@ public class FlowController implements EventAccess, ControllerServiceProvider, R
             //
             for (final ControllerServiceDTO controllerServiceDTO : dto.getControllerServices()) {
                 final BundleCoordinate bundleCoordinate = BundleUtils.getBundle(controllerServiceDTO.getType(), controllerServiceDTO.getBundle());
-                final ControllerServiceNode serviceNode = createControllerService(controllerServiceDTO.getType(), controllerServiceDTO.getId(), bundleCoordinate, true);
+                final ControllerServiceNode serviceNode = createControllerService(controllerServiceDTO.getType(), controllerServiceDTO.getId(), bundleCoordinate, Collections.emptySet(),true);
 
                 serviceNode.setAnnotationData(controllerServiceDTO.getAnnotationData());
                 serviceNode.setComments(controllerServiceDTO.getComments());
@@ -2004,6 +2012,12 @@ public class FlowController implements EventAccess, ControllerServiceProvider, R
                 descriptor.setConcurrentlySchedulableTaskCount(port.getConcurrentlySchedulableTaskCount());
                 descriptor.setTransmitting(port.isTransmitting());
                 descriptor.setUseCompression(port.getUseCompression());
+                final BatchSettingsDTO batchSettings = port.getBatchSettings();
+                if (batchSettings != null) {
+                    descriptor.setBatchCount(batchSettings.getCount());
+                    descriptor.setBatchSize(batchSettings.getSize());
+                    descriptor.setBatchDuration(batchSettings.getDuration());
+                }
                 remotePorts.add(descriptor);
             }
         }
@@ -2942,12 +2956,13 @@ public class FlowController implements EventAccess, ControllerServiceProvider, R
     }
 
     @Override
-    public ReportingTaskNode createReportingTask(final String type, final String id, final BundleCoordinate bundleCoordinate,final boolean firstTimeAdded) throws ReportingTaskInstantiationException {
-        return createReportingTask(type, id, bundleCoordinate, firstTimeAdded, true);
+    public ReportingTaskNode createReportingTask(final String type, final String id, final BundleCoordinate bundleCoordinate,final boolean firstTimeAdded)
+            throws ReportingTaskInstantiationException {
+        return createReportingTask(type, id, bundleCoordinate, Collections.emptySet(), firstTimeAdded, true);
     }
 
-    public ReportingTaskNode createReportingTask(final String type, final String id, final BundleCoordinate bundleCoordinate, final boolean firstTimeAdded, final boolean register)
-            throws ReportingTaskInstantiationException {
+    public ReportingTaskNode createReportingTask(final String type, final String id, final BundleCoordinate bundleCoordinate, final Set<URL> additionalUrls,
+                                                 final boolean firstTimeAdded, final boolean register) throws ReportingTaskInstantiationException {
         if (type == null || id == null || bundleCoordinate == null) {
             throw new NullPointerException();
         }
@@ -2955,7 +2970,7 @@ public class FlowController implements EventAccess, ControllerServiceProvider, R
         LoggableComponent<ReportingTask> task = null;
         boolean creationSuccessful = true;
         try {
-            task = instantiateReportingTask(type, id, bundleCoordinate);
+            task = instantiateReportingTask(type, id, bundleCoordinate, additionalUrls);
         } catch (final Exception e) {
             LOG.error("Could not create Reporting Task of type " + type + " for ID " + id + "; creating \"Ghost\" implementation", e);
             final GhostReportingTask ghostTask = new GhostReportingTask();
@@ -2968,12 +2983,12 @@ public class FlowController implements EventAccess, ControllerServiceProvider, R
         final ValidationContextFactory validationContextFactory = new StandardValidationContextFactory(controllerServiceProvider, variableRegistry);
         final ReportingTaskNode taskNode;
         if (creationSuccessful) {
-            taskNode = new StandardReportingTaskNode(task, id, this, processScheduler, validationContextFactory, variableRegistry);
+            taskNode = new StandardReportingTaskNode(task, id, this, processScheduler, validationContextFactory, variableRegistry, this);
         } else {
             final String simpleClassName = type.contains(".") ? StringUtils.substringAfterLast(type, ".") : type;
             final String componentType = "(Missing) " + simpleClassName;
 
-            taskNode = new StandardReportingTaskNode(task, id, this, processScheduler, validationContextFactory, componentType, type, variableRegistry, true);
+            taskNode = new StandardReportingTaskNode(task, id, this, processScheduler, validationContextFactory, componentType, type, variableRegistry, this, true);
         }
 
         taskNode.setName(taskNode.getReportingTask().getClass().getSimpleName());
@@ -3008,7 +3023,7 @@ public class FlowController implements EventAccess, ControllerServiceProvider, R
         return taskNode;
     }
 
-    private LoggableComponent<ReportingTask> instantiateReportingTask(final String type, final String id, final BundleCoordinate bundleCoordinate)
+    private LoggableComponent<ReportingTask> instantiateReportingTask(final String type, final String id, final BundleCoordinate bundleCoordinate, final Set<URL> additionalUrls)
             throws ReportingTaskInstantiationException {
 
         final ClassLoader ctxClassLoader = Thread.currentThread().getContextClassLoader();
@@ -3018,7 +3033,7 @@ public class FlowController implements EventAccess, ControllerServiceProvider, R
                 throw new IllegalStateException("Unable to find bundle for coordinate " + bundleCoordinate.getCoordinate());
             }
 
-            final ClassLoader detectedClassLoader = ExtensionManager.createInstanceClassLoader(type, id, reportingTaskBundle);
+            final ClassLoader detectedClassLoader = ExtensionManager.createInstanceClassLoader(type, id, reportingTaskBundle, additionalUrls);
             final Class<?> rawClass = Class.forName(type, false, detectedClassLoader);
             Thread.currentThread().setContextClassLoader(detectedClassLoader);
 
@@ -3039,7 +3054,8 @@ public class FlowController implements EventAccess, ControllerServiceProvider, R
     }
 
     @Override
-    public void changeReportingTaskType(final ReportingTaskNode existingNode, final String newType, final BundleCoordinate bundleCoordinate) throws ReportingTaskInstantiationException {
+    public void reload(final ReportingTaskNode existingNode, final String newType, final BundleCoordinate bundleCoordinate, final Set<URL> additionalUrls)
+            throws ReportingTaskInstantiationException {
         if (existingNode == null) {
             throw new IllegalStateException("Existing ReportingTaskNode cannot be null");
         }
@@ -3052,11 +3068,13 @@ public class FlowController implements EventAccess, ControllerServiceProvider, R
 
         // set firstTimeAdded to true so lifecycle annotations get fired, but don't register this node
         // attempt the creation to make sure it works before firing the OnRemoved methods below
-        final ReportingTaskNode newNode = createReportingTask(newType, id, bundleCoordinate, true, false);
+        final ReportingTaskNode newNode = createReportingTask(newType, id, bundleCoordinate, additionalUrls, true, false);
 
         // call OnRemoved for the existing reporting task using the previous instance class loader
         try (final NarCloseable x = NarCloseable.withComponentNarLoader(existingInstanceClassLoader)) {
             ReflectionUtils.quietlyInvokeMethodsWithAnnotation(OnRemoved.class, existingNode.getReportingTask(), existingNode.getConfigurationContext());
+        } finally {
+            ExtensionManager.closeURLClassLoader(id, existingInstanceClassLoader);
         }
 
         // set the new reporting task into the existing node
@@ -3117,7 +3135,7 @@ public class FlowController implements EventAccess, ControllerServiceProvider, R
         }
 
         reportingTasks.remove(reportingTaskNode.getIdentifier());
-        ExtensionManager.removeInstanceClassLoaderIfExists(reportingTaskNode.getIdentifier());
+        ExtensionManager.removeInstanceClassLoader(reportingTaskNode.getIdentifier());
     }
 
     @Override
@@ -3126,8 +3144,8 @@ public class FlowController implements EventAccess, ControllerServiceProvider, R
     }
 
     @Override
-    public ControllerServiceNode createControllerService(final String type, final String id, final BundleCoordinate bundleCoordinate, final boolean firstTimeAdded) {
-        final ControllerServiceNode serviceNode = controllerServiceProvider.createControllerService(type, id, bundleCoordinate, firstTimeAdded);
+    public ControllerServiceNode createControllerService(final String type, final String id, final BundleCoordinate bundleCoordinate, final Set<URL> additionalUrls, final boolean firstTimeAdded) {
+        final ControllerServiceNode serviceNode = controllerServiceProvider.createControllerService(type, id, bundleCoordinate, additionalUrls, firstTimeAdded);
 
         // Register log observer to provide bulletins when reporting task logs anything at WARN level or above
         final LogRepository logRepository = LogRepositoryFactory.getRepository(id);
@@ -3145,7 +3163,8 @@ public class FlowController implements EventAccess, ControllerServiceProvider, R
         return serviceNode;
     }
 
-    public void changeControllerServiceType(final ControllerServiceNode existingNode, final String newType, final BundleCoordinate bundleCoordinate)
+    @Override
+    public void reload(final ControllerServiceNode existingNode, final String newType, final BundleCoordinate bundleCoordinate, final Set<URL> additionalUrls)
             throws ControllerServiceInstantiationException {
         if (existingNode == null) {
             throw new IllegalStateException("Existing ControllerServiceNode cannot be null");
@@ -3159,12 +3178,14 @@ public class FlowController implements EventAccess, ControllerServiceProvider, R
 
         // create a new node with firstTimeAdded as true so lifecycle methods get called
         // attempt the creation to make sure it works before firing the OnRemoved methods below
-        final ControllerServiceNode newNode = controllerServiceProvider.createControllerService(newType, id, bundleCoordinate, true);
+        final ControllerServiceNode newNode = controllerServiceProvider.createControllerService(newType, id, bundleCoordinate, additionalUrls, true);
 
         // call OnRemoved for the existing service using the previous instance class loader
         try (final NarCloseable x = NarCloseable.withComponentNarLoader(existingInstanceClassLoader)) {
             final ConfigurationContext configurationContext = new StandardConfigurationContext(existingNode, controllerServiceProvider, null, variableRegistry);
             ReflectionUtils.quietlyInvokeMethodsWithAnnotation(OnRemoved.class, existingNode.getControllerServiceImplementation(), configurationContext);
+        } finally {
+            ExtensionManager.closeURLClassLoader(id, existingInstanceClassLoader);
         }
 
         // take the invocation handler that was created for new proxy and is set to look at the new node,
@@ -3313,7 +3334,7 @@ public class FlowController implements EventAccess, ControllerServiceProvider, R
         rootControllerServices.remove(service.getIdentifier());
         getStateManagerProvider().onComponentRemoved(service.getIdentifier());
 
-        ExtensionManager.removeInstanceClassLoaderIfExists(service.getIdentifier());
+        ExtensionManager.removeInstanceClassLoader(service.getIdentifier());
 
         LOG.info("{} removed from Flow Controller", service, this);
     }

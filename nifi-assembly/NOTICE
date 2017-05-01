@@ -132,34 +132,6 @@ The following binary components are provided under the Apache Software License v
       Apache Commons Logging
       Copyright 2003-2014 The Apache Software Foundation
 
-  (ASLv2) Twitter4J
-    The following NOTICE information applies:
-      Copyright 2007 Yusuke Yamamoto
-
-      Twitter4J includes software from JSON.org to parse JSON response from the Twitter API.
-      You can see the license term at http://www.JSON.org/license.html
-
-      Copyright (c) 2002 JSON.org
-
-      Permission is hereby granted, free of charge, to any person obtaining a copy of this
-      software and associated documentation files (the "Software"), to deal in the Software
-      without restriction, including without limitation the rights to use, copy, modify,
-      merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
-      permit persons to whom the Software is furnished to do so, subject to the following
-      conditions:
-
-      The above copyright notice and this permission notice shall be included in all
-      copies or substantial portions of the Software.
-
-      The Software shall be used for Good, not Evil.
-
-      THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
-      INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-      PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-      HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
-      CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-      OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
     (ASLv2) Apache Commons VFS
       The following NOTICE information applies:
         Apache Commons VFS
@@ -373,6 +345,11 @@ The following binary components are provided under the Apache Software License v
     The following NOTICE information applies:
       Apache Commons Math
       Copyright 2001-2012 The Apache Software Foundation
+
+  (ASLv2) Java Native Access Platform
+    The following NOTICE information applies:
+      Java Native Access Platform
+      Copyright 2013 Timothy Wall, Matthias Bläsing
 
       This product includes software developed by
       The Apache Software Foundation (http://www.apache.org/).
@@ -779,6 +756,34 @@ The following binary components are provided under the Apache Software License v
   (ASLv2) Google GSON
     The following NOTICE information applies:
       Copyright 2008 Google Inc.
+
+  (ASLv2) Google OAuth Client Library
+    The following NOTICE information applies:
+      Copyright 2012 Google Inc.
+
+  (ASLv2) Google HTTP Client Library for Java
+    The following NOTICE information applies:
+      Copyright 2011 Google Inc.
+
+  (ASLv2) Google Guice
+    The following NOTICE information applies:
+      Google Guice - Core Library
+      Copyright 2006-2011 Google, Inc.
+
+  (ASLv2) Google Cloud Client Library for Java
+    The following NOTICE information applies:
+      Google Cloud Client Library for Java
+      Copyright 2016 Google Inc. All Rights Reserved.
+
+  (ASLv2) Guava
+    The following NOTICE information applies:
+      Guava
+      Copyright 2015 The Guava Authors
+
+  (ASLv2) Apache Commons FileUpload
+    The following NOTICE information applies:
+      Apache Commons IO
+      Copyright 2002-2014 The Apache Software Foundation
 
   (ASLv2) JSON-SMART
     The following NOTICE information applies:
@@ -1206,10 +1211,35 @@ The derived work is adapted from
   release-1.2.1/ql/src/java/org/apache/hadoop/hive/ql/io/orc/WriterImpl.java
 and can be found in the org.apache.hadoop.hive.ql.io.orc package
 
-  (ASLv2) Google Cloud Java Client
+  (ASLv2) tlsh
     The following NOTICE information applies:
-      Google Cloud Java Client
-      Copyright Google Inc. All Rights Reserved.
+       Java port of Trend Locality Sensitive Hash (TLSH)
+       Copyright 2000-2016 Idealista, S.A
+
+       This product includes software developed at
+       Idealista, S.A (http://www.idealista.com/)
+
+       Based on the algorithms described in Trend Micro's TLSH official
+       repository, available in:
+
+         https://github.com/trendmicro/tlsh
+
+       Refer to the following publication for more information:
+
+         Jonathan Oliver, Chun Cheng and Yanggui Chen, “TLSH - A Locality
+         Sensitive Hash” - 4th Cybercrime and Trustworthy Computing Workshop,
+         Sydney, November 2013
+
+         https://drive.google.com/file/d/0B6FS3SVQ1i0GTXk5eDl3Y29QWlk/edit?usp=sharing
+
+       This software is inspired in the previous Java port developed by TripleCheck:
+
+         https://github.com/triplecheck/TLSH
+
+  (ASLv2) Hortonworks Schema Registry
+    The following NOTICE information applies:
+      Hortonworks Schema Registry
+      Copyright 2016-2017 Hortonworks, Inc.
 
 ************************
 Common Development and Distribution License 1.1
@@ -1262,6 +1292,7 @@ The following binary components are provided under the Common Development and Di
     (CDDL 1.0) JavaBeans Activation Framework (JAF) (javax.activation:activation:jar:1.1 - http://java.sun.com/products/javabeans/jaf/index.jsp)
     (CDDL 1.0) JSR311 API (javax.ws.rs:jsr311-api:jar:1.1.1 - https://jsr311.dev.java.net)
     (CDDL 1.0) JHighlight (org.codelibs:jhighlight:1.0.2 - https://github.com/codelibs/jhighlight)
+    (CDDL 1.0) Javax Transaction API (javax.transaction:transaction-api:jar:1.1 - no url available)
 
 ************************
 Creative Commons Attribution-ShareAlike 3.0
@@ -1281,8 +1312,8 @@ The following binary components are provided under the Eclipse Public License 1.
     (EPL 1.0) AspectJ Weaver (org.aspectj:aspectjweaver:jar:1.8.5 - http://www.eclipse.org/aspectj/)
     (EPL 1.0) AspectJ Runtime (org.aspectj:aspectjrt:jar:1.8.0 - http://www.eclipse.org/aspectj/)
     (EPL 1.0)(MPL 2.0) H2 Database (com.h2database:h2:jar:1.3.176 - http://www.h2database.com/html/license.html)
-    (EPL 1.0)(LGPL 2.1) Logback Classic (ch.qos.logback:logback-classic:jar:1.1.3 - http://logback.qos.ch/)
-    (EPL 1.0)(LGPL 2.1) Logback Core (ch.qos.logback:logback-core:jar:1.1.3 - http://logback.qos.ch/)
+    (EPL 1.0)(LGPL 2.1) Logback Classic (ch.qos.logback:logback-classic:jar:1.2.3 - http://logback.qos.ch/)
+    (EPL 1.0)(LGPL 2.1) Logback Core (ch.qos.logback:logback-core:jar:1.2.3 - http://logback.qos.ch/)
     (EPLv1.0)(GPL 2)(LGPL 2.1) JRuby (org.jruby:jruby-complete:9.0.4.0 - http://jruby.org).
     (EPL 1.0) Eclipse Paho MQTT Client (org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.0.2 - https://github.com/eclipse/paho.mqtt.java)
     (EPL 1.0) Eclipse Link (org.eclipse.persistence:eclipselink:2.5.2 - http://www.eclipse.org/eclipselink/)
@@ -1298,6 +1329,7 @@ The MIT License
 The following binary components are provided under the MIT License.  See project link for details.
 
   (MIT License) EWS Java API (com.microsoft.ews-java-api:ews-java-api:2.0 - https://github.com/OfficeDev/ews-java-api)
+  (MIT License) libffi (libffi-3.2.1 - http://sourceware.org/libffi/)
 
 *****************
 Mozilla Public License v2.0
