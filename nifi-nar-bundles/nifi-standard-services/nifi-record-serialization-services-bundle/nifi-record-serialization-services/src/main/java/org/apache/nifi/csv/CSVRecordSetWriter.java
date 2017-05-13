@@ -18,7 +18,6 @@
 package org.apache.nifi.csv;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -28,7 +27,6 @@ import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnEnabled;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.controller.ConfigurationContext;
-import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.schema.access.SchemaNotFoundException;
 import org.apache.nifi.serialization.DateTimeTextRecordSetWriter;
@@ -38,7 +36,8 @@ import org.apache.nifi.serialization.record.RecordSchema;
 
 @Tags({"csv", "result", "set", "recordset", "record", "writer", "serializer", "row", "tsv", "tab", "separated", "delimited"})
 @CapabilityDescription("Writes the contents of a RecordSet as CSV data. The first line written "
-    + "will be the column names. All subsequent lines will be the values corresponding to those columns.")
+    + "will be the column names (unless the 'Include Header Line' property is false). All subsequent lines will be the values "
+    + "corresponding to the record fields.")
 public class CSVRecordSetWriter extends DateTimeTextRecordSetWriter implements RecordSetWriterFactory {
 
     private volatile CSVFormat csvFormat;
@@ -68,8 +67,8 @@ public class CSVRecordSetWriter extends DateTimeTextRecordSetWriter implements R
     }
 
     @Override
-    public RecordSetWriter createWriter(final ComponentLog logger, final FlowFile flowFile, final InputStream in) throws SchemaNotFoundException, IOException {
-        final RecordSchema schema = getSchema(flowFile, in);
-        return new WriteCSVResult(csvFormat, schema, getSchemaAccessWriter(schema), getDateFormat(), getTimeFormat(), getTimestampFormat(), includeHeader);
+    public RecordSetWriter createWriter(final ComponentLog logger, final RecordSchema schema) throws SchemaNotFoundException, IOException {
+        return new WriteCSVResult(csvFormat, schema, getSchemaAccessWriter(schema),
+            getDateFormat().orElse(null), getTimeFormat().orElse(null), getTimestampFormat().orElse(null), includeHeader);
     }
 }

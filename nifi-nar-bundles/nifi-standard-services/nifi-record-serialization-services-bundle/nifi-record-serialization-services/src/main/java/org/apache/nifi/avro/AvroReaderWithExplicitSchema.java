@@ -33,17 +33,15 @@ import org.apache.nifi.serialization.record.RecordSchema;
 
 public class AvroReaderWithExplicitSchema extends AvroRecordReader {
     private final InputStream in;
-    private final Schema avroSchema;
     private final RecordSchema recordSchema;
     private final DatumReader<GenericRecord> datumReader;
     private final BinaryDecoder decoder;
     private GenericRecord genericRecord;
 
-    public AvroReaderWithExplicitSchema(final InputStream in, final RecordSchema recordSchema) throws IOException, SchemaNotFoundException {
+    public AvroReaderWithExplicitSchema(final InputStream in, final RecordSchema recordSchema, final Schema avroSchema) throws IOException, SchemaNotFoundException {
         this.in = in;
         this.recordSchema = recordSchema;
 
-        this.avroSchema = AvroTypeUtil.extractAvroSchema(recordSchema);
         datumReader = new GenericDatumReader<GenericRecord>(avroSchema);
         decoder = DecoderFactory.get().binaryDecoder(in, null);
     }

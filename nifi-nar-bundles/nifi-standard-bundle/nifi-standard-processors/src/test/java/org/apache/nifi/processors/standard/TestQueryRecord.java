@@ -16,6 +16,28 @@
  */
 package org.apache.nifi.processors.standard;
 
+import org.apache.nifi.controller.AbstractControllerService;
+import org.apache.nifi.flowfile.FlowFile;
+import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.reporting.InitializationException;
+import org.apache.nifi.schema.access.SchemaNotFoundException;
+import org.apache.nifi.serialization.RecordSetWriter;
+import org.apache.nifi.serialization.RecordSetWriterFactory;
+import org.apache.nifi.serialization.SimpleRecordSchema;
+import org.apache.nifi.serialization.WriteResult;
+import org.apache.nifi.serialization.record.MockRecordParser;
+import org.apache.nifi.serialization.record.MockRecordWriter;
+import org.apache.nifi.serialization.record.Record;
+import org.apache.nifi.serialization.record.RecordField;
+import org.apache.nifi.serialization.record.RecordFieldType;
+import org.apache.nifi.serialization.record.RecordSchema;
+import org.apache.nifi.serialization.record.RecordSet;
+import org.apache.nifi.util.MockFlowFile;
+import org.apache.nifi.util.TestRunner;
+import org.apache.nifi.util.TestRunners;
+import org.junit.Assert;
+import org.junit.Test;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -23,24 +45,7 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-
-import org.apache.nifi.controller.AbstractControllerService;
-import org.apache.nifi.flowfile.FlowFile;
-import org.apache.nifi.logging.ComponentLog;
-import org.apache.nifi.processors.standard.util.record.MockRecordParser;
-import org.apache.nifi.processors.standard.util.record.MockRecordWriter;
-import org.apache.nifi.reporting.InitializationException;
-import org.apache.nifi.serialization.RecordSetWriter;
-import org.apache.nifi.serialization.RecordSetWriterFactory;
-import org.apache.nifi.serialization.WriteResult;
-import org.apache.nifi.serialization.record.Record;
-import org.apache.nifi.serialization.record.RecordFieldType;
-import org.apache.nifi.serialization.record.RecordSet;
-import org.apache.nifi.util.MockFlowFile;
-import org.apache.nifi.util.TestRunner;
-import org.apache.nifi.util.TestRunners;
-import org.junit.Assert;
-import org.junit.Test;
+import java.util.stream.Collectors;
 
 public class TestQueryRecord {
 
@@ -256,7 +261,15 @@ public class TestQueryRecord {
         }
 
         @Override
-        public RecordSetWriter createWriter(ComponentLog logger, FlowFile flowFile, InputStream in) {
+        public RecordSchema getSchema(FlowFile flowFile, InputStream content) throws SchemaNotFoundException, IOException {
+            final List<RecordField> recordFields = columnNames.stream()
+                .map(name -> new RecordField(name, RecordFieldType.STRING.getDataType()))
+                .collect(Collectors.toList());
+            return new SimpleRecordSchema(recordFields);
+        }
+
+        @Override
+        public RecordSetWriter createWriter(ComponentLog logger, RecordSchema schema) {
             return new RecordSetWriter() {
                 @Override
                 public WriteResult write(final RecordSet rs, final OutputStream out) throws IOException {

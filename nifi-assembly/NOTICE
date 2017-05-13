@@ -4,9 +4,39 @@ Copyright 2014-2017 The Apache Software Foundation
 This product includes software developed at
 The Apache Software Foundation (http://www.apache.org/).
 
-This product includes the following work from the Apache Hadoop project:
+This product includes the following work from the Apache Hadoop project under Apache Software License V2:
+  BoundedByteArrayOutputStream.java adapted to SoftLimitBoundedByteArrayOutputStream.java
 
-BoundedByteArrayOutputStream.java which was adapted to SoftLimitBoundedByteArrayOutputStream.java
+This product includes derived works from the Apache Software License V2 library python-evtx (https://github.com/williballenthin/python-evtx)
+  Copyright 2012, 2013 Willi Ballenthin william.ballenthin@mandiant.com
+  while at Mandiant http://www.mandiant.com
+  The derived work is adapted from Evtx/Evtx.py, Evtx/BinaryParser.py, Evtx/Nodes.py, Evtx/Views.py
+  and can be found in the org.apache.nifi.processors.evtx.parser package.
+
+This includes derived works from the Apache Storm (ASLv2 licensed) project (https://github.com/apache/storm):
+  Copyright 2015 The Apache Software Foundation
+  The derived work is adapted from
+    org/apache/storm/hive/common/HiveWriter.java
+    org/apache/storm/hive/common/HiveOptions.java
+  and can be found in the org.apache.nifi.util.hive package
+
+This includes derived works from the Apache Hive (ASLv2 licensed) project (https://github.com/apache/hive):
+  Copyright 2008-2016 The Apache Software Foundation
+  The derived work is adapted from
+    release-1.2.1/ql/src/java/org/apache/hadoop/hive/ql/io/orc/WriterImpl.java
+  and can be found in the org.apache.hadoop.hive.ql.io.orc package
+
+This includes derived works from the Apache Software License V2 library Jolt (https://github.com/bazaarvoice/jolt)
+  Copyright 2013-2014 Bazaarvoice, Inc
+  The derived work is adapted from com.bazaarvoice.jolt.chainr.ChainrBuilder.java, com.bazaarvoice.jolt.chainr.spec.ChainrSpec.java,
+  com.bazaarvoice.jolt.chainr.spec.ChainrEntry.java and can be found in the org.apache.nifi.processors.standard.util.jolt.TransformFactory.java class.
+
+This includes derived works from Elastic Logstash (https://github.com/elastic/logstash/tree/v1.4.0/) and modified by Anthony Corbacho, and contributors
+  available under an Apache Software License V2.
+  Copyright 2009-2013 Jordan Sissel, Pete Fritchman, and contributors.
+  Copyright 2014 Anthony Corbacho, and contributors.
+  The derived work consists in modifications from patterns/grok-patterns
+  and can be found in the file nifi/nifi-nar-bundles/nifi-standard-bundle/nifi-standard-processors/src/test/resources/TestExtractGrok/patterns
 
 ===========================================
 Apache Software License v2
@@ -32,7 +62,7 @@ The following binary components are provided under the Apache Software License v
   (ASLv2) Apache Commons Compress
     The following NOTICE information applies:
       Apache Commons Compress
-      Copyright 2002-2014 The Apache Software Foundation
+      Copyright 2002-2017 The Apache Software Foundation
 
       The files in the package org.apache.commons.compress.archivers.sevenz
       were derived from the LZMA SDK, version 9.20 (C/ and CPP/7zip/),
@@ -442,6 +472,16 @@ The following binary components are provided under the Apache Software License v
 
       IPTC Photo Metadata descriptions Copyright 2010 International Press Telecommunications Council.
 
+  (ASLv2) Apache Calcite
+    The following NOTICE information applies:
+		Apache Calcite
+		Copyright 2012-2017 The Apache Software Foundation
+		
+		This product is based on source code originally developed
+		by DynamoBI Corporation, LucidEra Inc., SQLstream Inc. and others
+		under the auspices of the Eigenbase Foundation
+		and released as the LucidDB project.
+
   (ASLv2) Apache Jakarta Commons Digester
     The following NOTICE information applies:
       Apache Jakarta Commons Digester
@@ -455,7 +495,7 @@ The following binary components are provided under the Apache Software License v
   (ASLv2) Apache Avro
     The following NOTICE information applies:
       Apache Avro
-      Copyright 2009-2013 The Apache Software Foundation
+      Copyright 2009-2017 The Apache Software Foundation
 
   (ASLv2) Snappy Java
     The following NOTICE information applies:
@@ -496,7 +536,7 @@ The following binary components are provided under the Apache Software License v
   (ASLv2) Jetty
     The following NOTICE information applies:
        Jetty Web Container
-       Copyright 1995-2015 Mort Bay Consulting Pty Ltd.
+       Copyright 1995-2017 Mort Bay Consulting Pty Ltd.
 
   (ASLv2) Apache Tomcat
     The following NOTICE information applies:
@@ -1193,23 +1233,9 @@ The following binary components are provided under the Apache Software License v
       * HOMEPAGE:
         * http://felix.apache.org/
 
-This includes derived works from the Apache Software License V2 library python-evtx (https://github.com/williballenthin/python-evtx)
-Copyright 2012, 2013 Willi Ballenthin william.ballenthin@mandiant.com
-while at Mandiant http://www.mandiant.com
-The derived work is adapted from Evtx/Evtx.py, Evtx/BinaryParser.py, Evtx/Nodes.py, Evtx/Views.py and can be found in the org.apache.nifi.processors.evtx.parser package.
-
-This includes derived works from the Apache Storm (ASLv2 licensed) project (https://github.com/apache/storm):
-Copyright 2015 The Apache Software Foundation
-The derived work is adapted from
-  org/apache/storm/hive/common/HiveWriter.java
-  org/apache/storm/hive/common/HiveOptions.java
-and can be found in the org.apache.nifi.util.hive package
-
-This includes derived works from the Apache Hive (ASLv2 licensed) project (https://github.com/apache/hive):
-Copyright 2008-2016 The Apache Software Foundation
-The derived work is adapted from
-  release-1.2.1/ql/src/java/org/apache/hadoop/hive/ql/io/orc/WriterImpl.java
-and can be found in the org.apache.hadoop.hive.ql.io.orc package
+  (ASLv2) Android JSON library
+    The following NOTICE information applies:
+      Copyright (C) 2010 The Android Open Source Project
 
   (ASLv2) tlsh
     The following NOTICE information applies:
@@ -1235,6 +1261,14 @@ and can be found in the org.apache.hadoop.hive.ql.io.orc package
        This software is inspired in the previous Java port developed by TripleCheck:
 
          https://github.com/triplecheck/TLSH
+
+  (ASLv2) Apache Parquet
+    The following NOTICE information applies:
+      Apache Parquet MR (Incubating)
+      Copyright 2014 The Apache Software Foundation
+
+      This product includes software developed at
+      The Apache Software Foundation (http://www.apache.org/).
 
   (ASLv2) Hortonworks Schema Registry
     The following NOTICE information applies:
