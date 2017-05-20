@@ -26,6 +26,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.text.DateFormat;
@@ -82,6 +83,7 @@ public class TestAvroReaderWithEmbeddedSchema {
         final long secondsSinceMidnight = 33 + (20 * 60) + (14 * 60 * 60);
         final long millisSinceMidnight = secondsSinceMidnight * 1000L;
 
+        final BigDecimal bigDecimal = new BigDecimal("123.45");
 
         final byte[] serialized;
         final DatumWriter<GenericRecord> datumWriter = new GenericDatumWriter<>(schema);
@@ -94,6 +96,7 @@ public class TestAvroReaderWithEmbeddedSchema {
             record.put("timestampMillis", timeLong);
             record.put("timestampMicros", timeLong * 1000L);
             record.put("date", 17260);
+            record.put("decimal", ByteBuffer.wrap(bigDecimal.unscaledValue().toByteArray()));
 
             writer.append(record);
             writer.flush();
@@ -110,6 +113,7 @@ public class TestAvroReaderWithEmbeddedSchema {
             assertEquals(RecordFieldType.TIMESTAMP, recordSchema.getDataType("timestampMillis").get().getFieldType());
             assertEquals(RecordFieldType.TIMESTAMP, recordSchema.getDataType("timestampMicros").get().getFieldType());
             assertEquals(RecordFieldType.DATE, recordSchema.getDataType("date").get().getFieldType());
+            assertEquals(RecordFieldType.DOUBLE, recordSchema.getDataType("decimal").get().getFieldType());
 
             final Record record = reader.nextRecord();
             assertEquals(new java.sql.Time(millisSinceMidnight), record.getValue("timeMillis"));
@@ -119,6 +123,7 @@ public class TestAvroReaderWithEmbeddedSchema {
             final DateFormat noTimeOfDayDateFormat = new SimpleDateFormat("yyyy-MM-dd");
             noTimeOfDayDateFormat.setTimeZone(TimeZone.getTimeZone("gmt"));
             assertEquals(noTimeOfDayDateFormat.format(new java.sql.Date(timeLong)), noTimeOfDayDateFormat.format(record.getValue("date")));
+            assertEquals(bigDecimal.doubleValue(), record.getValue("decimal"));
         }
     }
 
@@ -282,6 +287,49 @@ public class TestAvroReaderWithEmbeddedSchema {
             final Record catRecord = new MapRecord(catRecordSchema, catMap);
 
             assertEquals(catRecord, values[14]);
+        }
+    }
+
+    @Test
+    public void testMultipleTypes() throws IOException, ParseException, MalformedRecordException, SchemaNotFoundException {
+        final Schema schema = new Schema.Parser().parse(new File("src/test/resources/avro/multiple-types.avsc"));
+        final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+
+        final byte[] serialized;
+        final DatumWriter<GenericRecord> datumWriter = new GenericDatumWriter<>(schema);
+        try (final DataFileWriter<GenericRecord> dataFileWriter = new DataFileWriter<>(datumWriter);
+             final DataFileWriter<GenericRecord> writer = dataFileWriter.create(schema, baos)) {
+
+            // If a union field has multiple type options, a value should be mapped to the first compatible type.
+            final GenericRecord r1 = new GenericData.Record(schema);
+            r1.put("field", 123);
+
+            final GenericRecord r2 = new GenericData.Record(schema);
+            r2.put("field", Arrays.asList(1, 2, 3));
+
+            final GenericRecord r3 = new GenericData.Record(schema);
+            r3.put("field", "not a number");
+
+            writer.append(r1);
+            writer.append(r2);
+            writer.append(r3);
+            writer.flush();
+
+            serialized = baos.toByteArray();
+        }
+
+        try (final InputStream in = new ByteArrayInputStream(serialized)) {
+            final AvroRecordReader reader = new AvroReaderWithEmbeddedSchema(in);
+            final RecordSchema recordSchema = reader.getSchema();
+
+            assertEquals(RecordFieldType.CHOICE, recordSchema.getDataType("field").get().getFieldType());
+
+            Record record = reader.nextRecord();
+            assertEquals(123, record.getValue("field"));
+            record = reader.nextRecord();
+            assertArrayEquals(new Object[]{1, 2, 3}, (Object[]) record.getValue("field"));
+            record = reader.nextRecord();
+            assertEquals("not a number", record.getValue("field"));
         }
     }
 

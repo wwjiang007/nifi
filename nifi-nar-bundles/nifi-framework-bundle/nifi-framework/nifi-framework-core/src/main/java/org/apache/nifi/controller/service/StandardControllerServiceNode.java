@@ -18,6 +18,7 @@ package org.apache.nifi.controller.service;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.nifi.annotation.behavior.Restricted;
+import org.apache.nifi.annotation.documentation.DeprecationNotice;
 import org.apache.nifi.annotation.lifecycle.OnDisabled;
 import org.apache.nifi.annotation.lifecycle.OnEnabled;
 import org.apache.nifi.authorization.Resource;
@@ -41,6 +42,7 @@ import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.nar.NarCloseable;
 import org.apache.nifi.processor.SimpleProcessLogger;
 import org.apache.nifi.registry.VariableRegistry;
+import org.apache.nifi.util.CharacterFilterUtils;
 import org.apache.nifi.util.ReflectionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -144,6 +146,11 @@ public class StandardControllerServiceNode extends AbstractConfiguredComponent i
     @Override
     public boolean isRestricted() {
         return getControllerServiceImplementation().getClass().isAnnotationPresent(Restricted.class);
+    }
+
+    @Override
+    public boolean isDeprecated() {
+        return getControllerServiceImplementation().getClass().isAnnotationPresent(DeprecationNotice.class);
     }
 
     @Override
@@ -347,7 +354,7 @@ public class StandardControllerServiceNode extends AbstractConfiguredComponent i
     public void setComments(final String comment) {
         writeLock.lock();
         try {
-            this.comment = comment;
+            this.comment = CharacterFilterUtils.filterInvalidXmlCharacters(comment);
         } finally {
             writeLock.unlock();
         }

@@ -32,6 +32,7 @@ import org.apache.nifi.logging.ComponentLog;
 
 import java.net.URL;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -56,6 +57,10 @@ public interface ConfiguredComponent extends ComponentAuthorizable {
     boolean isValid();
 
     void reload(Set<URL> additionalUrls) throws Exception;
+
+    void refreshProperties();
+
+    Set<URL> getAdditionalClasspathResources(List<PropertyDescriptor> propertyDescriptors);
 
     BundleCoordinate getBundleCoordinate();
 
@@ -88,6 +93,11 @@ public interface ConfiguredComponent extends ComponentAuthorizable {
      * @return whether or not the underlying implementation is restricted
      */
     boolean isRestricted();
+
+    /**
+     * @return whether or not the underlying implementation is deprecated
+     */
+    boolean isDeprecated();
 
     @Override
     default AuthorizationResult checkAuthorization(Authorizer authorizer, RequestAction action, NiFiUser user, Map<String, String> resourceContext) {
