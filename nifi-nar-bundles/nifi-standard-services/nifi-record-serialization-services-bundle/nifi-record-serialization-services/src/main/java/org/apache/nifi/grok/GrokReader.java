@@ -35,7 +35,6 @@ import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.controller.ConfigurationContext;
-import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.schema.access.SchemaAccessStrategy;
@@ -62,11 +61,13 @@ import io.thekraken.grok.api.exception.GrokException;
     + "If a line in the input does not match the expected message pattern, the line of text is either considered to be part of the previous "
     + "message or is skipped, depending on the configuration, with the exception of stack traces. A stack trace that is found at the end of "
     + "a log message is considered to be part of the previous message but is added to the 'stackTrace' field of the Record. If a record has "
-    + "no stack trace, it will have a NULL value for the stackTrace field (assuming that the schema does in fact include a stackTrace field of type String).")
+    + "no stack trace, it will have a NULL value for the stackTrace field (assuming that the schema does in fact include a stackTrace field of type String). "
+    + "Assuming that the schema includes a '_raw' field of type String, the raw message will be included in the Record.")
 public class GrokReader extends SchemaRegistryService implements RecordReaderFactory {
     private volatile Grok grok;
     private volatile boolean appendUnmatchedLine;
     private volatile RecordSchema recordSchema;
+    private volatile RecordSchema recordSchemaFromGrok;
 
     private static final String DEFAULT_PATTERN_NAME = "/default-grok-patterns.txt";
 
@@ -133,35 +134,59 @@ public class GrokReader extends SchemaRegistryService implements RecordReaderFac
 
         appendUnmatchedLine = context.getProperty(NO_MATCH_BEHAVIOR).getValue().equalsIgnoreCase(APPEND_TO_PREVIOUS_MESSAGE.getValue());
 
-        this.recordSchema = createRecordSchema(grok);
+        this.recordSchemaFromGrok = createRecordSchema(grok);
+
+        final String schemaAccess = context.getProperty(getSchemaAcessStrategyDescriptor()).getValue();
+        if (STRING_FIELDS_FROM_GROK_EXPRESSION.getValue().equals(schemaAccess)) {
+            this.recordSchema = recordSchemaFromGrok;
+        } else {
+            this.recordSchema = null;
+        }
     }
 
     static RecordSchema createRecordSchema(final Grok grok) {
         final List<RecordField> fields = new ArrayList<>();
 
         String grokExpression = grok.getOriginalGrokPattern();
-        while (grokExpression.length() > 0) {
-            final Matcher matcher = GrokUtils.GROK_PATTERN.matcher(grokExpression);
-            if (matcher.find()) {
-                final Map<String, String> namedGroups = GrokUtils.namedGroups(matcher, grokExpression);
-                final String fieldName = namedGroups.get("subname");
-
-                DataType dataType = RecordFieldType.STRING.getDataType();
-                final RecordField recordField = new RecordField(fieldName, dataType);
-                fields.add(recordField);
-
-                if (grokExpression.length() > matcher.end() + 1) {
-                    grokExpression = grokExpression.substring(matcher.end() + 1);
-                } else {
-                    break;
-                }
-            }
-        }
+        populateSchemaFieldNames(grok, grokExpression, fields);
 
         fields.add(new RecordField(GrokRecordReader.STACK_TRACE_COLUMN_NAME, RecordFieldType.STRING.getDataType()));
+        fields.add(new RecordField(GrokRecordReader.RAW_MESSAGE_NAME, RecordFieldType.STRING.getDataType()));
 
         final RecordSchema schema = new SimpleRecordSchema(fields);
         return schema;
+    }
+
+    private static void populateSchemaFieldNames(final Grok grok, String grokExpression, final List<RecordField> fields) {
+        while (grokExpression.length() > 0) {
+            final Matcher matcher = GrokUtils.GROK_PATTERN.matcher(grokExpression);
+            if (matcher.find()) {
+                final Map<String, String> extractedGroups = GrokUtils.namedGroups(matcher, grokExpression);
+                final String subName = extractedGroups.get("subname");
+
+                if (subName == null) {
+                    final String subPatternName = extractedGroups.get("pattern");
+                    if (subPatternName == null) {
+                        continue;
+                    }
+
+                    final String subExpression = grok.getPatterns().get(subPatternName);
+                    populateSchemaFieldNames(grok, subExpression, fields);
+                } else {
+                    DataType dataType = RecordFieldType.STRING.getDataType();
+                    final RecordField recordField = new RecordField(subName, dataType);
+                    fields.add(recordField);
+                }
+
+                if (grokExpression.length() > matcher.end() + 1) {
+                    grokExpression = grokExpression.substring(matcher.end());
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
     }
 
 
@@ -179,20 +204,20 @@ public class GrokReader extends SchemaRegistryService implements RecordReaderFac
     }
 
     @Override
-    protected SchemaAccessStrategy getSchemaAccessStrategy(final String allowableValue, final SchemaRegistry schemaRegistry, final ConfigurationContext context) {
-        if (allowableValue.equalsIgnoreCase(STRING_FIELDS_FROM_GROK_EXPRESSION.getValue())) {
+    protected SchemaAccessStrategy getSchemaAccessStrategy(final String strategy, final SchemaRegistry schemaRegistry, final ConfigurationContext context) {
+        if (strategy.equalsIgnoreCase(STRING_FIELDS_FROM_GROK_EXPRESSION.getValue())) {
             return createAccessStrategy();
         } else {
-            return super.getSchemaAccessStrategy(allowableValue, schemaRegistry, context);
+            return super.getSchemaAccessStrategy(strategy, schemaRegistry, context);
         }
     }
 
     @Override
-    protected SchemaAccessStrategy getSchemaAccessStrategy(final String allowableValue, final SchemaRegistry schemaRegistry, final ValidationContext context) {
-        if (allowableValue.equalsIgnoreCase(STRING_FIELDS_FROM_GROK_EXPRESSION.getValue())) {
+    protected SchemaAccessStrategy getSchemaAccessStrategy(final String strategy, final SchemaRegistry schemaRegistry, final ValidationContext context) {
+        if (strategy.equalsIgnoreCase(STRING_FIELDS_FROM_GROK_EXPRESSION.getValue())) {
             return createAccessStrategy();
         } else {
-            return super.getSchemaAccessStrategy(allowableValue, schemaRegistry, context);
+            return super.getSchemaAccessStrategy(strategy, schemaRegistry, context);
         }
     }
 
@@ -200,8 +225,9 @@ public class GrokReader extends SchemaRegistryService implements RecordReaderFac
         return new SchemaAccessStrategy() {
             private final Set<SchemaField> schemaFields = EnumSet.noneOf(SchemaField.class);
 
+
             @Override
-            public RecordSchema getSchema(final FlowFile flowFile, final InputStream contentStream) throws SchemaNotFoundException {
+            public RecordSchema getSchema(Map<String, String> variables, InputStream contentStream, RecordSchema readSchema) throws SchemaNotFoundException {
                 return recordSchema;
             }
 
@@ -213,8 +239,8 @@ public class GrokReader extends SchemaRegistryService implements RecordReaderFac
     }
 
     @Override
-    public RecordReader createRecordReader(final FlowFile flowFile, final InputStream in, final ComponentLog logger) throws IOException, SchemaNotFoundException {
-        final RecordSchema schema = getSchema(flowFile, in);
-        return new GrokRecordReader(in, grok, schema, appendUnmatchedLine);
+    public RecordReader createRecordReader(final Map<String, String> variables, final InputStream in, final ComponentLog logger) throws IOException, SchemaNotFoundException {
+        final RecordSchema schema = getSchema(variables, in, null);
+        return new GrokRecordReader(in, grok, schema, recordSchemaFromGrok, appendUnmatchedLine);
     }
 }

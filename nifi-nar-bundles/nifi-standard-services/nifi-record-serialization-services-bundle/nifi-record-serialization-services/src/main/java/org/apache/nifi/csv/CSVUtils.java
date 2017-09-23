@@ -33,7 +33,7 @@ public class CSVUtils {
     static final AllowableValue EXCEL = new AllowableValue("excel", "Microsoft Excel", "CSV data follows the format used by Microsoft Excel");
     static final AllowableValue TDF = new AllowableValue("tdf", "Tab-Delimited", "CSV data is Tab-Delimited instead of Comma Delimited");
     static final AllowableValue INFORMIX_UNLOAD = new AllowableValue("informix-unload", "Informix Unload", "The format used by Informix when issuing the UNLOAD TO file_name command");
-    static final AllowableValue INFORMIX_UNLOAD_CSV = new AllowableValue("informix-unload", "Informix Unload Escape Disabled",
+    static final AllowableValue INFORMIX_UNLOAD_CSV = new AllowableValue("informix-unload-csv", "Informix Unload Escape Disabled",
         "The format used by Informix when issuing the UNLOAD TO file_name command with escaping disabled");
     static final AllowableValue MYSQL = new AllowableValue("mysql", "MySQL Format", "CSV data follows the format used by MySQL");
 
@@ -61,17 +61,30 @@ public class CSVUtils {
         .defaultValue("\"")
         .required(true)
         .build();
-    static final PropertyDescriptor SKIP_HEADER_LINE = new PropertyDescriptor.Builder()
+    static final PropertyDescriptor FIRST_LINE_IS_HEADER = new PropertyDescriptor.Builder()
         .name("Skip Header Line")
-        .description("Specifies whether or not the first line of CSV should be considered a Header and skipped. If the Schema Access Strategy "
+        .displayName("Treat First Line as Header")
+        .description("Specifies whether or not the first line of CSV should be considered a Header or should be considered a record. If the Schema Access Strategy "
             + "indicates that the columns must be defined in the header, then this property will be ignored, since the header must always be "
-            + "present and won't be processed as a Record. Otherwise, this property should be 'true' if the first non-comment line of CSV "
-            + "contains header information that needs to be ignored.")
+            + "present and won't be processed as a Record. Otherwise, if 'true', then the first line of CSV data will not be processed as a record and if 'false',"
+            + "then the first line will be interpreted as a record.")
         .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
         .expressionLanguageSupported(false)
         .allowableValues("true", "false")
         .defaultValue("false")
         .required(true)
+        .build();
+    static final PropertyDescriptor IGNORE_CSV_HEADER = new PropertyDescriptor.Builder()
+        .name("ignore-csv-header")
+        .displayName("Ignore CSV Header Column Names")
+        .description("If the first line of a CSV is a header, and the configured schema does not match the fields named in the header line, this controls how "
+            + "the Reader will interpret the fields. If this property is true, then the field names mapped to each column are driven only by the configured schema and "
+            + "any fields not in the schema will be ignored. If this property is false, then the field names found in the CSV Header will be used as the names of the "
+            + "fields.")
+        .expressionLanguageSupported(false)
+        .allowableValues("true", "false")
+        .defaultValue("false")
+        .required(false)
         .build();
     static final PropertyDescriptor COMMENT_MARKER = new PropertyDescriptor.Builder()
         .name("Comment Marker")
@@ -176,7 +189,7 @@ public class CSVUtils {
             .withAllowMissingColumnNames()
             .withIgnoreEmptyLines();
 
-        final PropertyValue skipHeaderPropertyValue = context.getProperty(SKIP_HEADER_LINE);
+        final PropertyValue skipHeaderPropertyValue = context.getProperty(FIRST_LINE_IS_HEADER);
         if (skipHeaderPropertyValue.getValue() != null && skipHeaderPropertyValue.asBoolean()) {
             format = format.withFirstRecordAsHeader();
         }

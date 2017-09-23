@@ -53,7 +53,7 @@ import java.util.Collections;
 import java.util.List;
 
 @InputRequirement(InputRequirement.Requirement.INPUT_REQUIRED)
-@Tags({"put", "parquet", "hadoop", "HDFS", "filesystem", "restricted"})
+@Tags({"put", "parquet", "hadoop", "HDFS", "filesystem", "restricted", "record"})
 @CapabilityDescription("Reads records from an incoming FlowFile using the provided Record Reader, and writes those records " +
         "to a Parquet file. The schema for the Parquet file must be provided in the processor properties. This processor will " +
         "first write a temporary dot file and upon successfully writing every record to the dot file, it will rename the " +
@@ -185,7 +185,7 @@ public class PutParquet extends AbstractPutHDFSRecord {
         return new AvroParquetHDFSRecordWriter(parquetWriter.build(), avroSchema);
     }
 
-    private void applyCommonConfig(final ParquetWriter.Builder builder, final ProcessContext context, final FlowFile flowFile, final Configuration conf) {
+    private void applyCommonConfig(final ParquetWriter.Builder<?, ?> builder, final ProcessContext context, final FlowFile flowFile, final Configuration conf) {
         builder.withConf(conf);
 
         // Required properties

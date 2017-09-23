@@ -37,6 +37,8 @@ import org.apache.nifi.groups.ProcessGroup;
 import org.apache.nifi.groups.RemoteProcessGroup;
 import org.apache.nifi.persistence.TemplateSerializer;
 import org.apache.nifi.processor.Relationship;
+import org.apache.nifi.registry.VariableDescriptor;
+import org.apache.nifi.registry.VariableRegistry;
 import org.apache.nifi.remote.RemoteGroupPort;
 import org.apache.nifi.remote.RootGroupPort;
 import org.apache.nifi.util.CharacterFilterUtils;
@@ -70,7 +72,7 @@ import java.util.concurrent.TimeUnit;
  */
 public class StandardFlowSerializer implements FlowSerializer {
 
-    private static final String MAX_ENCODING_VERSION = "1.1";
+    private static final String MAX_ENCODING_VERSION = "1.2";
 
     private final StringEncryptor encryptor;
 
@@ -159,19 +161,19 @@ public class StandardFlowSerializer implements FlowSerializer {
 
         if (group.isRootGroup()) {
             for (final Port port : group.getInputPorts()) {
-                addRootGroupPort(element, (RootGroupPort) port, "inputPort");
+                addRootGroupPort(element, (RootGroupPort) port, "inputPort", scheduledStateLookup);
             }
 
             for (final Port port : group.getOutputPorts()) {
-                addRootGroupPort(element, (RootGroupPort) port, "outputPort");
+                addRootGroupPort(element, (RootGroupPort) port, "outputPort", scheduledStateLookup);
             }
         } else {
             for (final Port port : group.getInputPorts()) {
-                addPort(element, port, "inputPort");
+                addPort(element, port, "inputPort", scheduledStateLookup);
             }
 
             for (final Port port : group.getOutputPorts()) {
-                addPort(element, port, "outputPort");
+                addPort(element, port, "outputPort", scheduledStateLookup);
             }
         }
 
@@ -188,7 +190,7 @@ public class StandardFlowSerializer implements FlowSerializer {
         }
 
         for (final RemoteProcessGroup remoteRef : group.getRemoteProcessGroups()) {
-            addRemoteProcessGroup(element, remoteRef);
+            addRemoteProcessGroup(element, remoteRef, scheduledStateLookup);
         }
 
         for (final Connection connection : group.getConnections()) {
@@ -202,6 +204,18 @@ public class StandardFlowSerializer implements FlowSerializer {
         for (final Template template : group.getTemplates()) {
             addTemplate(element, template);
         }
+
+        final VariableRegistry variableRegistry = group.getVariableRegistry();
+        for (final Map.Entry<VariableDescriptor, String> entry : variableRegistry.getVariableMap().entrySet()) {
+            addVariable(element, entry.getKey().getName(), entry.getValue());
+        }
+    }
+
+    private static void addVariable(final Element parentElement, final String variableName, final String variableValue) {
+        final Element variableElement = parentElement.getOwnerDocument().createElement("variable");
+        variableElement.setAttribute("name", variableName);
+        variableElement.setAttribute("value", variableValue);
+        parentElement.appendChild(variableElement);
     }
 
     private static void addBundle(final Element parentElement, final BundleCoordinate coordinate) {
@@ -261,7 +275,7 @@ public class StandardFlowSerializer implements FlowSerializer {
         addPosition(element, funnel.getPosition());
     }
 
-    private void addRemoteProcessGroup(final Element parentElement, final RemoteProcessGroup remoteRef) {
+    private void addRemoteProcessGroup(final Element parentElement, final RemoteProcessGroup remoteRef, final ScheduledStateLookup scheduledStateLookup) {
         final Document doc = parentElement.getOwnerDocument();
         final Element element = doc.createElement("remoteProcessGroup");
         parentElement.appendChild(element);
@@ -290,20 +304,20 @@ public class StandardFlowSerializer implements FlowSerializer {
 
         for (final RemoteGroupPort port : remoteRef.getInputPorts()) {
             if (port.hasIncomingConnection()) {
-                addRemoteGroupPort(element, port, "inputPort");
+                addRemoteGroupPort(element, port, "inputPort", scheduledStateLookup);
             }
         }
 
         for (final RemoteGroupPort port : remoteRef.getOutputPorts()) {
             if (!port.getConnections().isEmpty()) {
-                addRemoteGroupPort(element, port, "outputPort");
+                addRemoteGroupPort(element, port, "outputPort", scheduledStateLookup);
             }
         }
 
         parentElement.appendChild(element);
     }
 
-    private void addRemoteGroupPort(final Element parentElement, final RemoteGroupPort port, final String elementName) {
+    private void addRemoteGroupPort(final Element parentElement, final RemoteGroupPort port, final String elementName, final ScheduledStateLookup scheduledStateLookup) {
         final Document doc = parentElement.getOwnerDocument();
         final Element element = doc.createElement(elementName);
         parentElement.appendChild(element);
@@ -311,7 +325,7 @@ public class StandardFlowSerializer implements FlowSerializer {
         addTextElement(element, "name", port.getName());
         addPosition(element, port.getPosition());
         addTextElement(element, "comments", port.getComments());
-        addTextElement(element, "scheduledState", port.getScheduledState().name());
+        addTextElement(element, "scheduledState", scheduledStateLookup.getScheduledState(port).name());
         addTextElement(element, "maxConcurrentTasks", port.getMaxConcurrentTasks());
         addTextElement(element, "useCompression", String.valueOf(port.isUseCompression()));
         final Integer batchCount = port.getBatchCount();
@@ -330,7 +344,7 @@ public class StandardFlowSerializer implements FlowSerializer {
         parentElement.appendChild(element);
     }
 
-    private void addPort(final Element parentElement, final Port port, final String elementName) {
+    private void addPort(final Element parentElement, final Port port, final String elementName, final ScheduledStateLookup scheduledStateLookup) {
         final Document doc = parentElement.getOwnerDocument();
         final Element element = doc.createElement(elementName);
         parentElement.appendChild(element);
@@ -338,12 +352,12 @@ public class StandardFlowSerializer implements FlowSerializer {
         addTextElement(element, "name", port.getName());
         addPosition(element, port.getPosition());
         addTextElement(element, "comments", port.getComments());
-        addTextElement(element, "scheduledState", port.getScheduledState().name());
+        addTextElement(element, "scheduledState", scheduledStateLookup.getScheduledState(port).name());
 
         parentElement.appendChild(element);
     }
 
-    private void addRootGroupPort(final Element parentElement, final RootGroupPort port, final String elementName) {
+    private void addRootGroupPort(final Element parentElement, final RootGroupPort port, final String elementName, final ScheduledStateLookup scheduledStateLookup) {
         final Document doc = parentElement.getOwnerDocument();
         final Element element = doc.createElement(elementName);
         parentElement.appendChild(element);
@@ -351,7 +365,7 @@ public class StandardFlowSerializer implements FlowSerializer {
         addTextElement(element, "name", port.getName());
         addPosition(element, port.getPosition());
         addTextElement(element, "comments", port.getComments());
-        addTextElement(element, "scheduledState", port.getScheduledState().name());
+        addTextElement(element, "scheduledState", scheduledStateLookup.getScheduledState(port).name());
         addTextElement(element, "maxConcurrentTasks", String.valueOf(port.getMaxConcurrentTasks()));
         for (final String user : port.getUserAccessControl()) {
             addTextElement(element, "userAccessControl", user);

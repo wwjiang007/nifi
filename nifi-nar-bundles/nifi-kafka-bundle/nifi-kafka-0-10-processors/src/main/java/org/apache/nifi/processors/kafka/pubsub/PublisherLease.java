@@ -33,7 +33,6 @@ import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.schema.access.SchemaNotFoundException;
-import org.apache.nifi.serialization.RecordReader;
 import org.apache.nifi.serialization.RecordSetWriter;
 import org.apache.nifi.serialization.RecordSetWriterFactory;
 import org.apache.nifi.serialization.record.Record;
@@ -96,7 +95,7 @@ public class PublisherLease implements Closeable {
         }
     }
 
-    void publish(final FlowFile flowFile, final RecordReader reader, final RecordSetWriterFactory writerFactory, final RecordSchema schema,
+    void publish(final FlowFile flowFile, final RecordSet recordSet, final RecordSetWriterFactory writerFactory, final RecordSchema schema,
         final String messageKeyField, final String topic) throws IOException {
         if (tracker == null) {
             tracker = new InFlightMessageTracker();
@@ -105,13 +104,13 @@ public class PublisherLease implements Closeable {
         final ByteArrayOutputStream baos = new ByteArrayOutputStream(1024);
 
         Record record;
-        final RecordSet recordSet = reader.createRecordSet();
         int recordCount = 0;
 
-        try (final RecordSetWriter writer = writerFactory.createWriter(logger, schema, flowFile, baos)) {
+        try (final RecordSetWriter writer = writerFactory.createWriter(logger, schema, baos)) {
             while ((record = recordSet.next()) != null) {
                 recordCount++;
                 baos.reset();
+
                 writer.write(record);
                 writer.flush();
 
@@ -193,6 +192,10 @@ public class PublisherLease implements Closeable {
     }
 
     public InFlightMessageTracker getTracker() {
+        if (tracker == null) {
+            tracker = new InFlightMessageTracker();
+        }
+
         return tracker;
     }
 }

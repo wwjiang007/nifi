@@ -24,7 +24,6 @@ import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.controller.AbstractControllerService;
 import org.apache.nifi.controller.ConfigurationContext;
-import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.schema.access.SchemaAccessStrategy;
 import org.apache.nifi.schema.access.SchemaAccessUtils;
 import org.apache.nifi.schema.access.SchemaField;
@@ -32,6 +31,7 @@ import org.apache.nifi.schema.access.SchemaNotFoundException;
 import org.apache.nifi.schemaregistry.services.SchemaRegistry;
 import org.apache.nifi.serialization.record.RecordSchema;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -40,6 +40,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.apache.nifi.schema.access.SchemaAccessUtils.HWX_CONTENT_ENCODED_SCHEMA;
@@ -50,13 +51,16 @@ import static org.apache.nifi.schema.access.SchemaAccessUtils.SCHEMA_NAME_PROPER
 import static org.apache.nifi.schema.access.SchemaAccessUtils.SCHEMA_REGISTRY;
 import static org.apache.nifi.schema.access.SchemaAccessUtils.SCHEMA_TEXT;
 import static org.apache.nifi.schema.access.SchemaAccessUtils.SCHEMA_TEXT_PROPERTY;
+import static org.apache.nifi.schema.access.SchemaAccessUtils.CONFLUENT_ENCODED_SCHEMA;
 
 public abstract class SchemaRegistryService extends AbstractControllerService {
 
     private volatile ConfigurationContext configurationContext;
     private volatile SchemaAccessStrategy schemaAccessStrategy;
+    private static InputStream EMPTY_INPUT_STREAM = new ByteArrayInputStream(new byte[0]);
 
-    private final List<AllowableValue> strategyList = Collections.unmodifiableList(Arrays.asList(SCHEMA_NAME_PROPERTY, SCHEMA_TEXT_PROPERTY, HWX_SCHEMA_REF_ATTRIBUTES, HWX_CONTENT_ENCODED_SCHEMA));
+    private final List<AllowableValue> strategyList = Collections.unmodifiableList(Arrays.asList(
+        SCHEMA_NAME_PROPERTY, SCHEMA_TEXT_PROPERTY, HWX_SCHEMA_REF_ATTRIBUTES, HWX_CONTENT_ENCODED_SCHEMA, CONFLUENT_ENCODED_SCHEMA));
 
     protected PropertyDescriptor getSchemaAcessStrategyDescriptor() {
         return getPropertyDescriptor(SCHEMA_ACCESS_STRATEGY.getName());
@@ -95,6 +99,7 @@ public abstract class SchemaRegistryService extends AbstractControllerService {
         this.schemaAccessStrategy = getSchemaAccessStrategy(schemaAccess, schemaRegistry, context);
     }
 
+    @Override
     protected ConfigurationContext getConfigurationContext() {
         return configurationContext;
     }
@@ -103,13 +108,17 @@ public abstract class SchemaRegistryService extends AbstractControllerService {
         return schemaAccessStrategy;
     }
 
-    public RecordSchema getSchema(final FlowFile flowFile, final InputStream contentStream) throws SchemaNotFoundException, IOException {
+    public final RecordSchema getSchema(final Map<String, String> variables, final InputStream contentStream, final RecordSchema readSchema) throws SchemaNotFoundException, IOException {
         final SchemaAccessStrategy accessStrategy = getSchemaAccessStrategy();
         if (accessStrategy == null) {
             throw new SchemaNotFoundException("Could not determine the Schema Access Strategy for this service");
         }
 
-        return getSchemaAccessStrategy().getSchema(flowFile, contentStream);
+        return getSchemaAccessStrategy().getSchema(variables, contentStream, readSchema);
+    }
+
+    public RecordSchema getSchema(final Map<String, String> variables, final RecordSchema readSchema) throws SchemaNotFoundException, IOException {
+        return getSchema(variables, EMPTY_INPUT_STREAM, readSchema);
     }
 
     @Override
@@ -134,12 +143,12 @@ public abstract class SchemaRegistryService extends AbstractControllerService {
         return suppliedFields;
     }
 
-    protected SchemaAccessStrategy getSchemaAccessStrategy(final String allowableValue, final SchemaRegistry schemaRegistry, final ConfigurationContext context) {
-        if (allowableValue == null) {
+    protected SchemaAccessStrategy getSchemaAccessStrategy(final String strategy, final SchemaRegistry schemaRegistry, final ConfigurationContext context) {
+        if (strategy == null) {
             return null;
         }
 
-        return SchemaAccessUtils.getSchemaAccessStrategy(allowableValue, schemaRegistry, context);
+        return SchemaAccessUtils.getSchemaAccessStrategy(strategy, schemaRegistry, context);
     }
 
     protected SchemaAccessStrategy getSchemaAccessStrategy(final String allowableValue, final SchemaRegistry schemaRegistry, final ValidationContext context) {

@@ -16,10 +16,40 @@
  */
 package org.apache.nifi.controller;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+import java.util.zip.GZIPInputStream;
+
+import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
+import javax.xml.validation.Schema;
+import javax.xml.validation.SchemaFactory;
+
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.nifi.authorization.AbstractPolicyBasedAuthorizer;
 import org.apache.nifi.authorization.Authorizer;
+import org.apache.nifi.authorization.AuthorizerCapabilityDetection;
+import org.apache.nifi.authorization.ManagedAuthorizer;
+import org.apache.nifi.authorization.exception.UninheritableAuthorizationsException;
 import org.apache.nifi.bundle.BundleCoordinate;
 import org.apache.nifi.cluster.protocol.DataFlow;
 import org.apache.nifi.cluster.protocol.StandardDataFlow;
@@ -71,6 +101,7 @@ import org.apache.nifi.util.file.FileUtils;
 import org.apache.nifi.web.api.dto.BundleDTO;
 import org.apache.nifi.web.api.dto.ConnectableDTO;
 import org.apache.nifi.web.api.dto.ConnectionDTO;
+import org.apache.nifi.web.api.dto.ControllerServiceDTO;
 import org.apache.nifi.web.api.dto.FlowSnippetDTO;
 import org.apache.nifi.web.api.dto.FunnelDTO;
 import org.apache.nifi.web.api.dto.LabelDTO;
@@ -89,33 +120,6 @@ import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 import org.xml.sax.SAXException;
-
-import javax.xml.XMLConstants;
-import javax.xml.parsers.DocumentBuilder;
-import javax.xml.parsers.DocumentBuilderFactory;
-import javax.xml.parsers.ParserConfigurationException;
-import javax.xml.validation.Schema;
-import javax.xml.validation.SchemaFactory;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
-import java.util.zip.GZIPInputStream;
 
 /**
  */
@@ -143,9 +147,15 @@ public class StandardFlowSynchronizer implements FlowSynchronizer {
 
         final Element rootGroupElement = (Element) rootElement.getElementsByTagName("rootGroup").item(0);
         final FlowEncodingVersion encodingVersion = FlowEncodingVersion.parse(rootGroupElement);
-
         final ProcessGroupDTO rootGroupDto = FlowFromDOMFactory.getProcessGroup(null, rootGroupElement, null, encodingVersion);
-        return isEmpty(rootGroupDto);
+
+        final NodeList reportingTasks = rootElement.getElementsByTagName("reportingTask");
+        final ReportingTaskDTO reportingTaskDTO = reportingTasks.getLength() == 0 ? null : FlowFromDOMFactory.getReportingTask((Element)reportingTasks.item(0),null);
+
+        final NodeList controllerServices = rootElement.getElementsByTagName("controllerService");
+        final ControllerServiceDTO controllerServiceDTO = controllerServices.getLength() == 0 ? null : FlowFromDOMFactory.getControllerService((Element)controllerServices.item(0),null);
+
+        return isEmpty(rootGroupDto) && isEmpty(reportingTaskDTO) && isEmpty(controllerServiceDTO);
     }
 
     @Override
@@ -224,15 +234,15 @@ public class StandardFlowSynchronizer implements FlowSynchronizer {
         logger.trace("Getting Authorizer fingerprint from controller");
 
         final byte[] existingAuthFingerprint;
-        final AbstractPolicyBasedAuthorizer policyBasedAuthorizer;
+        final ManagedAuthorizer managedAuthorizer;
         final Authorizer authorizer = controller.getAuthorizer();
 
-        if (authorizer instanceof AbstractPolicyBasedAuthorizer) {
-            policyBasedAuthorizer = (AbstractPolicyBasedAuthorizer) authorizer;
-            existingAuthFingerprint = policyBasedAuthorizer.getFingerprint().getBytes(StandardCharsets.UTF_8);
+        if (AuthorizerCapabilityDetection.isManagedAuthorizer(authorizer)) {
+            managedAuthorizer = (ManagedAuthorizer) authorizer;
+            existingAuthFingerprint = managedAuthorizer.getFingerprint().getBytes(StandardCharsets.UTF_8);
         } else {
             existingAuthFingerprint = null;
-            policyBasedAuthorizer = null;
+            managedAuthorizer = null;
         }
 
         final Set<String> missingComponents = new HashSet<>();
@@ -249,7 +259,7 @@ public class StandardFlowSynchronizer implements FlowSynchronizer {
             if (existingFlowEmpty) {
                 configuration = parseFlowBytes(proposedFlow.getFlow());
                 if (configuration != null) {
-                    logger.trace("Checking bunde compatibility");
+                    logger.trace("Checking bundle compatibility");
                     checkBundleCompatibility(configuration);
                 }
             } else {
@@ -272,7 +282,7 @@ public class StandardFlowSynchronizer implements FlowSynchronizer {
 
         logger.trace("Checking authorizer inheritability");
 
-        final AuthorizerInheritability authInheritability = checkAuthorizerInheritability(existingDataFlow, proposedFlow);
+        final AuthorizerInheritability authInheritability = checkAuthorizerInheritability(authorizer, existingDataFlow, proposedFlow);
         if (!authInheritability.isInheritable() && authInheritability.getReason() != null) {
             throw new UninheritableFlowException("Proposed Authorizer is not inheritable by the flow controller because of Authorizer differences: " + authInheritability.getReason());
         }
@@ -415,10 +425,10 @@ public class StandardFlowSynchronizer implements FlowSynchronizer {
             }
 
             // if auths are inheritable and we have a policy based authorizer, then inherit
-            if (authInheritability.isInheritable() && policyBasedAuthorizer != null) {
+            if (authInheritability.isInheritable() && managedAuthorizer != null) {
                 logger.trace("Inheriting authorizations");
                 final String proposedAuthFingerprint = new String(proposedFlow.getAuthorizerFingerprint(), StandardCharsets.UTF_8);
-                policyBasedAuthorizer.inheritFingerprint(proposedAuthFingerprint);
+                managedAuthorizer.inheritFingerprint(proposedAuthFingerprint);
             }
 
             logger.debug("Finished syncing flows");
@@ -532,6 +542,18 @@ public class StandardFlowSynchronizer implements FlowSynchronizer {
                 && CollectionUtils.isEmpty(contents.getProcessGroups())
                 && CollectionUtils.isEmpty(contents.getProcessors())
                 && CollectionUtils.isEmpty(contents.getRemoteProcessGroups());
+    }
+
+    private static boolean isEmpty(final ReportingTaskDTO reportingTaskDTO){
+
+       return reportingTaskDTO == null || StringUtils.isEmpty(reportingTaskDTO.getName()) ;
+
+    }
+
+    private static boolean isEmpty(final ControllerServiceDTO controllerServiceDTO){
+
+        return controllerServiceDTO == null || StringUtils.isEmpty(controllerServiceDTO.getName());
+
     }
 
     private static Document parseFlowBytes(final byte[] flow) throws FlowSerializationException {
@@ -774,19 +796,19 @@ public class StandardFlowSynchronizer implements FlowSynchronizer {
                     case DISABLED:
                         // switch processor do disabled. This means we have to stop it (if it's already stopped, this method does nothing),
                         // and then we have to disable it.
-                        port.getProcessGroup().stopInputPort(port);
+                        controller.stopConnectable(port);
                         port.getProcessGroup().disableInputPort(port);
                         break;
                     case RUNNING:
                         // we want to run now. Make sure processor is not disabled and then start it.
                         port.getProcessGroup().enableInputPort(port);
-                        port.getProcessGroup().startInputPort(port);
+                        controller.startConnectable(port);
                         break;
                     case STOPPED:
                         if (port.getScheduledState() == ScheduledState.DISABLED) {
                             port.getProcessGroup().enableInputPort(port);
                         } else if (port.getScheduledState() == ScheduledState.RUNNING) {
-                            port.getProcessGroup().stopInputPort(port);
+                            controller.stopConnectable(port);
                         }
                         break;
                 }
@@ -803,19 +825,19 @@ public class StandardFlowSynchronizer implements FlowSynchronizer {
                     case DISABLED:
                         // switch processor do disabled. This means we have to stop it (if it's already stopped, this method does nothing),
                         // and then we have to disable it.
-                        port.getProcessGroup().stopOutputPort(port);
+                        controller.stopConnectable(port);
                         port.getProcessGroup().disableOutputPort(port);
                         break;
                     case RUNNING:
                         // we want to run now. Make sure processor is not disabled and then start it.
                         port.getProcessGroup().enableOutputPort(port);
-                        port.getProcessGroup().startOutputPort(port);
+                        controller.startConnectable(port);
                         break;
                     case STOPPED:
                         if (port.getScheduledState() == ScheduledState.DISABLED) {
                             port.getProcessGroup().enableOutputPort(port);
                         } else if (port.getScheduledState() == ScheduledState.RUNNING) {
-                            port.getProcessGroup().stopOutputPort(port);
+                            controller.stopConnectable(port);
                         }
                         break;
                 }
@@ -1034,6 +1056,21 @@ public class StandardFlowSynchronizer implements FlowSynchronizer {
         } else {
             parentGroup.addProcessGroup(processGroup);
         }
+
+        // Set the variables for the variable registry
+        final Map<String, String> variables = new HashMap<>();
+        final List<Element> variableElements = getChildrenByTagName(processGroupElement, "variable");
+        for (final Element variableElement : variableElements) {
+            final String variableName = variableElement.getAttribute("name");
+            final String variableValue = variableElement.getAttribute("value");
+            if (variableName == null || variableValue == null) {
+                continue;
+            }
+
+            variables.put(variableName, variableValue);
+        }
+
+        processGroup.setVariables(variables);
 
         // Add Controller Services
         final List<Element> serviceNodeList = getChildrenByTagName(processGroupElement, "controllerService");
@@ -1391,7 +1428,7 @@ public class StandardFlowSynchronizer implements FlowSynchronizer {
      * @param proposedFlow the proposed DataFlow
      * @return the AuthorizerInheritability result
      */
-    public AuthorizerInheritability checkAuthorizerInheritability(final DataFlow existingFlow, final DataFlow proposedFlow) {
+    private AuthorizerInheritability checkAuthorizerInheritability(final Authorizer authorizer, final DataFlow existingFlow, final DataFlow proposedFlow) {
         final byte[] existing = existingFlow.getAuthorizerFingerprint();
         final byte[] proposed = proposedFlow.getAuthorizerFingerprint();
 
@@ -1414,15 +1451,20 @@ public class StandardFlowSynchronizer implements FlowSynchronizer {
 
         // both are internal, but not the same
         if (!Arrays.equals(existing, proposed)) {
-            final byte[] emptyAuthBytes = AbstractPolicyBasedAuthorizer.EMPTY_FINGERPRINT.getBytes(StandardCharsets.UTF_8);
+            if (AuthorizerCapabilityDetection.isManagedAuthorizer(authorizer)) {
+                final ManagedAuthorizer managedAuthorizer = (ManagedAuthorizer) authorizer;
 
-            // if current is empty then we can take all the proposed authorizations
-            // otherwise they are both internal authorizers and don't match so we can't proceed
-            if (Arrays.equals(emptyAuthBytes, existing)) {
-                return AuthorizerInheritability.inheritable();
+                try {
+                    // if the configurations are not equal, see if the manager indicates the proposed configuration is inheritable
+                    managedAuthorizer.checkInheritability(new String(proposed, StandardCharsets.UTF_8));
+                    return AuthorizerInheritability.inheritable();
+                } catch (final UninheritableAuthorizationsException e) {
+                    return AuthorizerInheritability.uninheritable("Proposed Authorizations do not match current Authorizations: " + e.getMessage());
+                }
             } else {
+                // should never hit since the existing is only null when authorizer is not managed
                 return AuthorizerInheritability.uninheritable(
-                        "Proposed Authorizations do not match current Authorizations");
+                        "Proposed Authorizations do not match current Authorizations and are not configured with an internal Authorizer");
             }
         }
 

@@ -16,10 +16,8 @@
  */
 package org.apache.nifi.processors.standard;
 
-import java.io.BufferedInputStream;
 import java.io.Closeable;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -47,6 +45,7 @@ import org.apache.calcite.config.Lex;
 import org.apache.calcite.jdbc.CalciteConnection;
 import org.apache.calcite.schema.SchemaPlus;
 import org.apache.calcite.sql.parser.SqlParser;
+import org.apache.calcite.sql.parser.SqlParser.Config;
 import org.apache.nifi.annotation.behavior.DynamicProperty;
 import org.apache.nifi.annotation.behavior.DynamicRelationship;
 import org.apache.nifi.annotation.behavior.EventDriven;
@@ -72,9 +71,10 @@ import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.io.OutputStreamCallback;
 import org.apache.nifi.queryrecord.FlowFileTable;
+import org.apache.nifi.schema.access.SchemaNotFoundException;
+import org.apache.nifi.serialization.RecordReaderFactory;
 import org.apache.nifi.serialization.RecordSetWriter;
 import org.apache.nifi.serialization.RecordSetWriterFactory;
-import org.apache.nifi.serialization.RecordReaderFactory;
 import org.apache.nifi.serialization.WriteResult;
 import org.apache.nifi.serialization.record.RecordSchema;
 import org.apache.nifi.serialization.record.ResultSetRecordSet;
@@ -94,7 +94,10 @@ import org.apache.nifi.util.StopWatch;
     + "is the Relationship to route data to, and the value of the Property is a SQL SELECT statement that is used to specify how input data should be transformed/filtered. "
     + "The SQL statement must be valid ANSI SQL and is powered by Apache Calcite. "
     + "If the transformation fails, the original FlowFile is routed to the 'failure' relationship. Otherwise, the data selected will be routed to the associated "
-    + "relationship. See the Processor Usage documentation for more information.")
+    + "relationship. If the Record Writer chooses to inherit the schema from the Record, it is important to note that the schema that is inherited will be from the "
+    + "ResultSet, rather than the input Record. This allows a single instance of the QueryRecord processor to have multiple queries, each of which returns a different "
+    + "set of columns and aggregations. As a result, though, the schema that is derived will have no schema name, so it is important that the configured Record Writer not attempt "
+    + "to write the Schema Name as an attribute if inheriting the Schema from the Record. See the Processor Usage documentation for more information.")
 @DynamicRelationship(name="<Property Name>", description="Each user-defined property defines a new Relationship for this Processor.")
 @DynamicProperty(name = "The name of the relationship to route data to", value="A SQL SELECT statement that is used to determine what data should be routed to this "
         + "relationship.", supportsExpressionLanguage=true, description="Each user-defined property specifies a SQL SELECT statement to run over the data, with the data "
@@ -241,25 +244,14 @@ public class QueryRecord extends AbstractProcessor {
 
         final StopWatch stopWatch = new StopWatch(true);
 
-        final RecordSetWriterFactory resultSetWriterFactory = context.getProperty(RECORD_WRITER_FACTORY)
-            .asControllerService(RecordSetWriterFactory.class);
-        final RecordReaderFactory recordParserFactory = context.getProperty(RECORD_READER_FACTORY)
-            .asControllerService(RecordReaderFactory.class);
+        final RecordSetWriterFactory recordSetWriterFactory = context.getProperty(RECORD_WRITER_FACTORY).asControllerService(RecordSetWriterFactory.class);
+        final RecordReaderFactory recordReaderFactory = context.getProperty(RECORD_READER_FACTORY).asControllerService(RecordReaderFactory.class);
 
         final Map<FlowFile, Relationship> transformedFlowFiles = new HashMap<>();
         final Set<FlowFile> createdFlowFiles = new HashSet<>();
 
-        final RecordSchema recordSchema;
-
-        try (final InputStream rawIn = session.read(original);
-            final InputStream in = new BufferedInputStream(rawIn)) {
-            recordSchema = resultSetWriterFactory.getSchema(original, in);
-        } catch (final Exception e) {
-            getLogger().error("Failed to determine Record Schema from {}; routing to failure", new Object[] {original, e});
-            session.transfer(original, REL_FAILURE);
-            return;
-        }
-
+        // Determine the schema for writing the data
+        final Map<String, String> originalAttributes = original.getAttributes();
         int recordsRead = 0;
 
         try {
@@ -281,21 +273,30 @@ public class QueryRecord extends AbstractProcessor {
                     final AtomicReference<WriteResult> writeResultRef = new AtomicReference<>();
                     final QueryResult queryResult;
                     if (context.getProperty(CACHE_SCHEMA).asBoolean()) {
-                        queryResult = queryWithCache(session, original, sql, context, recordParserFactory);
+                        queryResult = queryWithCache(session, original, sql, context, recordReaderFactory);
                     } else {
-                        queryResult = query(session, original, sql, context, recordParserFactory);
+                        queryResult = query(session, original, sql, context, recordReaderFactory);
                     }
 
                     final AtomicReference<String> mimeTypeRef = new AtomicReference<>();
-                    final FlowFile outFlowFile = transformed;
                     try {
                         final ResultSet rs = queryResult.getResultSet();
                         transformed = session.write(transformed, new OutputStreamCallback() {
                             @Override
                             public void process(final OutputStream out) throws IOException {
-                                try (final RecordSetWriter resultSetWriter = resultSetWriterFactory.createWriter(getLogger(), recordSchema, outFlowFile, out)) {
-                                    final ResultSetRecordSet resultSet = new ResultSetRecordSet(rs);
-                                    writeResultRef.set(resultSetWriter.write(resultSet));
+                                final ResultSetRecordSet recordSet;
+                                final RecordSchema writeSchema;
+
+                                try {
+                                    recordSet = new ResultSetRecordSet(rs);
+                                    final RecordSchema resultSetSchema = recordSet.getSchema();
+                                    writeSchema = recordSetWriterFactory.getSchema(originalAttributes, resultSetSchema);
+                                } catch (final SQLException | SchemaNotFoundException e) {
+                                    throw new ProcessException(e);
+                                }
+
+                                try (final RecordSetWriter resultSetWriter = recordSetWriterFactory.createWriter(getLogger(), writeSchema, out)) {
+                                    writeResultRef.set(resultSetWriter.write(recordSet));
                                     mimeTypeRef.set(resultSetWriter.getMimeType());
                                 } catch (final Exception e) {
                                     throw new IOException(e);
@@ -361,6 +362,7 @@ public class QueryRecord extends AbstractProcessor {
 
         session.adjustCounter("Records Read", recordsRead, false);
     }
+
 
     private synchronized CachedStatement getStatement(final String sql, final Supplier<CalciteConnection> connectionSupplier, final ProcessSession session,
         final FlowFile flowFile, final RecordReaderFactory recordReaderFactory) throws SQLException {
@@ -472,7 +474,7 @@ public class QueryRecord extends AbstractProcessor {
         final RecordReaderFactory recordParserFactory) throws SQLException {
 
         final Properties properties = new Properties();
-        properties.put(CalciteConnectionProperty.LEX.camelName(), Lex.JAVA.name());
+        properties.put(CalciteConnectionProperty.LEX.camelName(), Lex.MYSQL_ANSI.name());
 
         Connection connection = null;
         ResultSet resultSet = null;
@@ -545,7 +547,12 @@ public class QueryRecord extends AbstractProcessor {
             }
 
             final String substituted = context.newPropertyValue(input).evaluateAttributeExpressions().getValue();
-            final SqlParser parser = SqlParser.create(substituted);
+
+            final Config config = SqlParser.configBuilder()
+                .setLex(Lex.MYSQL_ANSI)
+                .build();
+
+            final SqlParser parser = SqlParser.create(substituted, config);
             try {
                 parser.parseStmt();
                 return new ValidationResult.Builder()

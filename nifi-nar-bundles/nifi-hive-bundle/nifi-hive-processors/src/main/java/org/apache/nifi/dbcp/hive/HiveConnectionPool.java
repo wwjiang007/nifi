@@ -190,8 +190,8 @@ public class HiveConnectionPool extends AbstractControllerService implements Hiv
 
         if (confFileProvided) {
             final String configFiles = validationContext.getProperty(HIVE_CONFIGURATION_RESOURCES).evaluateAttributeExpressions().getValue();
-            final String principal = validationContext.getProperty(kerberosProperties.getKerberosPrincipal()).getValue();
-            final String keyTab = validationContext.getProperty(kerberosProperties.getKerberosKeytab()).getValue();
+            final String principal = validationContext.getProperty(kerberosProperties.getKerberosPrincipal()).evaluateAttributeExpressions().getValue();
+            final String keyTab = validationContext.getProperty(kerberosProperties.getKerberosKeytab()).evaluateAttributeExpressions().getValue();
             problems.addAll(hiveConfigurator.validate(configFiles, principal, keyTab, validationResourceHolder, getLogger()));
         }
 
@@ -213,8 +213,6 @@ public class HiveConnectionPool extends AbstractControllerService implements Hiv
     @OnEnabled
     public void onConfigured(final ConfigurationContext context) throws InitializationException {
 
-        connectionUrl = context.getProperty(DATABASE_URL).getValue();
-
         ComponentLog log = getLogger();
 
         final String configFiles = context.getProperty(HIVE_CONFIGURATION_RESOURCES).evaluateAttributeExpressions().getValue();
@@ -231,8 +229,8 @@ public class HiveConnectionPool extends AbstractControllerService implements Hiv
 
         final String drv = HiveDriver.class.getName();
         if (SecurityUtil.isSecurityEnabled(hiveConfig)) {
-            final String principal = context.getProperty(kerberosProperties.getKerberosPrincipal()).getValue();
-            final String keyTab = context.getProperty(kerberosProperties.getKerberosKeytab()).getValue();
+            final String principal = context.getProperty(kerberosProperties.getKerberosPrincipal()).evaluateAttributeExpressions().getValue();
+            final String keyTab = context.getProperty(kerberosProperties.getKerberosKeytab()).evaluateAttributeExpressions().getValue();
 
             log.info("Hive Security Enabled, logging in as principal {} with keytab {}", new Object[]{principal, keyTab});
             try {
@@ -251,7 +249,7 @@ public class HiveConnectionPool extends AbstractControllerService implements Hiv
         dataSource = new BasicDataSource();
         dataSource.setDriverClassName(drv);
 
-        final String dburl = context.getProperty(DATABASE_URL).evaluateAttributeExpressions().getValue();
+        connectionUrl = context.getProperty(DATABASE_URL).evaluateAttributeExpressions().getValue();
 
         dataSource.setMaxWait(maxWaitMillis);
         dataSource.setMaxActive(maxTotal);
@@ -261,7 +259,7 @@ public class HiveConnectionPool extends AbstractControllerService implements Hiv
             dataSource.setTestOnBorrow(true);
         }
 
-        dataSource.setUrl(dburl);
+        dataSource.setUrl(connectionUrl);
         dataSource.setUsername(user);
         dataSource.setPassword(passw);
     }

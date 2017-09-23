@@ -20,6 +20,7 @@ import org.apache.nifi.events.EventReporter
 import org.apache.nifi.flowfile.FlowFile
 import org.apache.nifi.provenance.serialization.RecordReaders
 import org.apache.nifi.reporting.Severity
+import org.apache.nifi.security.kms.StaticKeyProvider
 import org.apache.nifi.util.file.FileUtils
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import org.junit.After
@@ -227,6 +228,9 @@ class EncryptedWriteAheadProvenanceRepositoryTest {
         RECORD_COUNT.times {
             repo.registerEvent(record)
         }
+
+        // Ensure there is not a timing issue retrieving all records
+        Thread.sleep(1000)
 
         final List<ProvenanceEventRecord> recoveredRecords = repo.getEvents(0L, RECORD_COUNT + 1)
 

@@ -128,9 +128,8 @@ public abstract class AbstractPutEventProcessor extends AbstractSessionFactoryPr
                     + "that is transmitted over the stream so that the receiver can determine when one message ends and the next message begins. Users should "
                     + "ensure that the FlowFile content does not contain the delimiter character to avoid errors. In order to use a new line character you can "
                     + "enter '\\n'. For a tab character use '\\t'. Finally for a carriage return use '\\r'.")
-            .required(true)
+            .required(false)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-            .defaultValue("\\n")
             .expressionLanguageSupported(true)
             .build();
     public static final PropertyDescriptor CONNECTION_PER_FLOWFILE = new PropertyDescriptor.Builder()
@@ -361,10 +360,12 @@ public abstract class AbstractPutEventProcessor extends AbstractSessionFactoryPr
                 boolean returned = senderPool.offer(sender);
                 // if the pool is full then close the sender.
                 if (!returned) {
+                    getLogger().debug("Sender wasn't returned because queue was full, closing sender");
                     sender.close();
                 }
             } else {
                 // probably already closed here, but quietly close anyway to be safe.
+                getLogger().debug("Sender is not connected, closing sender");
                 sender.close();
             }
         }

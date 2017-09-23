@@ -17,12 +17,37 @@
 
 package org.apache.nifi.cluster.coordination.http.replication;
 
-import com.sun.jersey.api.client.Client;
-import com.sun.jersey.api.client.ClientResponse;
-import com.sun.jersey.api.client.WebResource;
-import com.sun.jersey.api.client.config.ClientConfig;
-import com.sun.jersey.api.client.filter.GZIPContentEncodingFilter;
-import com.sun.jersey.core.util.MultivaluedMapImpl;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.LongSummaryStatistics;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+import javax.ws.rs.HttpMethod;
+import javax.ws.rs.core.MediaType;
+import javax.ws.rs.core.MultivaluedMap;
+import javax.ws.rs.core.Response.Status;
+
 import org.apache.nifi.authorization.AccessDeniedException;
 import org.apache.nifi.authorization.user.NiFiUser;
 import org.apache.nifi.authorization.user.NiFiUserUtils;
@@ -49,49 +74,27 @@ import org.apache.nifi.web.security.jwt.JwtAuthenticationFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.ws.rs.HttpMethod;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.MultivaluedMap;
-import javax.ws.rs.core.Response.Status;
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.LongSummaryStatistics;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.function.Function;
-import java.util.stream.Collectors;
+import com.sun.jersey.api.client.Client;
+import com.sun.jersey.api.client.ClientResponse;
+import com.sun.jersey.api.client.WebResource;
+import com.sun.jersey.api.client.config.ClientConfig;
+import com.sun.jersey.api.client.filter.GZIPContentEncodingFilter;
+import com.sun.jersey.core.util.MultivaluedMapImpl;
 
 public class ThreadPoolRequestReplicator implements RequestReplicator {
 
     private static final Logger logger = LoggerFactory.getLogger(ThreadPoolRequestReplicator.class);
-    private static final int MAX_CONCURRENT_REQUESTS = 100;
 
     private final Client client; // the client to use for issuing requests
     private final int connectionTimeoutMs; // connection timeout per node request
     private final int readTimeoutMs; // read timeout per node request
+    private final int maxConcurrentRequests; // maximum number of concurrent requests
     private final HttpResponseMapper responseMapper;
     private final EventReporter eventReporter;
     private final RequestCompletionCallback callback;
     private final ClusterCoordinator clusterCoordinator;
 
-    private ExecutorService executorService;
+    private ThreadPoolExecutor executorService;
     private ScheduledExecutorService maintenanceExecutor;
 
     private final ConcurrentMap<String, StandardAsyncClusterResponse> responseMap = new ConcurrentHashMap<>();
@@ -104,35 +107,41 @@ public class ThreadPoolRequestReplicator implements RequestReplicator {
     /**
      * Creates an instance using a connection timeout and read timeout of 3 seconds
      *
-     * @param numThreads         the number of threads to use when parallelizing requests
-     * @param client             a client for making requests
+     * @param corePoolSize core size of the thread pool
+     * @param maxPoolSize the max number of threads in the thread pool
+     * @param maxConcurrentRequests maximum number of concurrent requests
+     * @param client a client for making requests
      * @param clusterCoordinator the cluster coordinator to use for interacting with node statuses
-     * @param callback           a callback that will be called whenever all of the responses have been gathered for a request. May be null.
-     * @param eventReporter      an EventReporter that can be used to notify users of interesting events. May be null.
-     * @param nifiProperties     properties
+     * @param callback a callback that will be called whenever all of the responses have been gathered for a request. May be null.
+     * @param eventReporter an EventReporter that can be used to notify users of interesting events. May be null.
+     * @param nifiProperties properties
      */
-    public ThreadPoolRequestReplicator(final int numThreads, final Client client, final ClusterCoordinator clusterCoordinator,
+    public ThreadPoolRequestReplicator(final int corePoolSize, final int maxPoolSize, final int maxConcurrentRequests, final Client client, final ClusterCoordinator clusterCoordinator,
                                        final RequestCompletionCallback callback, final EventReporter eventReporter, final NiFiProperties nifiProperties) {
-        this(numThreads, client, clusterCoordinator, "5 sec", "5 sec", callback, eventReporter, nifiProperties);
+        this(corePoolSize, maxPoolSize, maxConcurrentRequests, client, clusterCoordinator, "5 sec", "5 sec", callback, eventReporter, nifiProperties);
     }
 
     /**
      * Creates an instance.
      *
-     * @param numThreads         the number of threads to use when parallelizing requests
-     * @param client             a client for making requests
+     * @param corePoolSize core size of the thread pool
+     * @param maxPoolSize the max number of threads in the thread pool
+     * @param maxConcurrentRequests maximum number of concurrent requests
+     * @param client a client for making requests
      * @param clusterCoordinator the cluster coordinator to use for interacting with node statuses
-     * @param connectionTimeout  the connection timeout specified in milliseconds
-     * @param readTimeout        the read timeout specified in milliseconds
-     * @param callback           a callback that will be called whenever all of the responses have been gathered for a request. May be null.
-     * @param eventReporter      an EventReporter that can be used to notify users of interesting events. May be null.
-     * @param nifiProperties     properties
+     * @param connectionTimeout the connection timeout specified in milliseconds
+     * @param readTimeout the read timeout specified in milliseconds
+     * @param callback a callback that will be called whenever all of the responses have been gathered for a request. May be null.
+     * @param eventReporter an EventReporter that can be used to notify users of interesting events. May be null.
+     * @param nifiProperties properties
      */
-    public ThreadPoolRequestReplicator(final int numThreads, final Client client, final ClusterCoordinator clusterCoordinator,
+    public ThreadPoolRequestReplicator(final int corePoolSize, final int maxPoolSize, final int maxConcurrentRequests, final Client client, final ClusterCoordinator clusterCoordinator,
                                        final String connectionTimeout, final String readTimeout, final RequestCompletionCallback callback,
                                        final EventReporter eventReporter, final NiFiProperties nifiProperties) {
-        if (numThreads <= 0) {
-            throw new IllegalArgumentException("The number of threads must be greater than zero.");
+        if (corePoolSize <= 0) {
+            throw new IllegalArgumentException("The Core Pool Size must be greater than zero.");
+        } else if (maxPoolSize < corePoolSize) {
+            throw new IllegalArgumentException("Max Pool Size must be >= Core Pool Size.");
         } else if (client == null) {
             throw new IllegalArgumentException("Client may not be null.");
         }
@@ -141,6 +150,7 @@ public class ThreadPoolRequestReplicator implements RequestReplicator {
         this.clusterCoordinator = clusterCoordinator;
         this.connectionTimeoutMs = (int) FormatUtils.getTimeDuration(connectionTimeout, TimeUnit.MILLISECONDS);
         this.readTimeoutMs = (int) FormatUtils.getTimeDuration(readTimeout, TimeUnit.MILLISECONDS);
+        this.maxConcurrentRequests = maxConcurrentRequests;
         this.responseMapper = new StandardHttpResponseMapper(nifiProperties);
         this.eventReporter = eventReporter;
         this.callback = callback;
@@ -150,12 +160,14 @@ public class ThreadPoolRequestReplicator implements RequestReplicator {
         client.getProperties().put(ClientConfig.PROPERTY_FOLLOW_REDIRECTS, Boolean.TRUE);
 
         final AtomicInteger threadId = new AtomicInteger(0);
-        executorService = Executors.newFixedThreadPool(numThreads, r -> {
+        final ThreadFactory threadFactory = r -> {
             final Thread t = Executors.defaultThreadFactory().newThread(r);
             t.setDaemon(true);
             t.setName("Replicate Request Thread-" + threadId.incrementAndGet());
             return t;
-        });
+        };
+
+        executorService = new ThreadPoolExecutor(corePoolSize, maxPoolSize, 5, TimeUnit.SECONDS, new LinkedBlockingQueue<Runnable>(), threadFactory);
 
         maintenanceExecutor = Executors.newScheduledThreadPool(1, new ThreadFactory() {
             @Override
@@ -352,11 +364,11 @@ public class ThreadPoolRequestReplicator implements RequestReplicator {
             }
 
             int numRequests = responseMap.size();
-            if (numRequests >= MAX_CONCURRENT_REQUESTS) {
+            if (numRequests >= maxConcurrentRequests) {
                 numRequests = purgeExpiredRequests();
             }
 
-            if (numRequests >= MAX_CONCURRENT_REQUESTS) {
+            if (numRequests >= maxConcurrentRequests) {
                 final Map<String, Long> countsByUri = responseMap.values().stream().collect(
                         Collectors.groupingBy(
                                 StandardAsyncClusterResponse::getURIPath,
@@ -435,6 +447,11 @@ public class ThreadPoolRequestReplicator implements RequestReplicator {
                     monitor.notify();
                 }
                 logger.debug("Notified monitor {} because request {} {} has failed with Throwable {}", monitor, method, uri, t);
+            }
+
+            if (response != null) {
+                final RuntimeException failure = (t instanceof RuntimeException) ? (RuntimeException) t : new RuntimeException("Failed to submit Replication Request to background thread", t);
+                response.setFailure(failure, new NodeIdentifier());
             }
 
             throw t;
@@ -815,7 +832,7 @@ public class ThreadPoolRequestReplicator implements RequestReplicator {
                 nodeResponse = replicateRequest(resourceBuilder, nodeId, method, uri, requestId, headers, clusterResponse);
             } catch (final Exception e) {
                 nodeResponse = new NodeResponse(nodeId, method, uri, e);
-                logger.warn("Failed to replicate request {} {} to {} due to {}", method, uri.getPath(), nodeId, e);
+                logger.warn("Failed to replicate request {} {} to {} due to {}", method, uri.getPath(), nodeId, e.toString());
                 logger.warn("", e);
             }
 

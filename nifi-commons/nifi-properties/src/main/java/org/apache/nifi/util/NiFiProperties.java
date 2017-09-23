@@ -148,6 +148,14 @@ public abstract class NiFiProperties {
     public static final String SECURITY_IDENTITY_MAPPING_PATTERN_PREFIX = "nifi.security.identity.mapping.pattern.";
     public static final String SECURITY_IDENTITY_MAPPING_VALUE_PREFIX = "nifi.security.identity.mapping.value.";
 
+    // oidc
+    public static final String SECURITY_USER_OIDC_DISCOVERY_URL = "nifi.security.user.oidc.discovery.url";
+    public static final String SECURITY_USER_OIDC_CONNECT_TIMEOUT = "nifi.security.user.oidc.connect.timeout";
+    public static final String SECURITY_USER_OIDC_READ_TIMEOUT = "nifi.security.user.oidc.read.timeout";
+    public static final String SECURITY_USER_OIDC_CLIENT_ID = "nifi.security.user.oidc.client.id";
+    public static final String SECURITY_USER_OIDC_CLIENT_SECRET = "nifi.security.user.oidc.client.secret";
+    public static final String SECURITY_USER_OIDC_PREFERRED_JWSALGORITHM = "nifi.security.user.oidc.preferred.jwsalgorithm";
+
     // web properties
     public static final String WEB_WAR_DIR = "nifi.web.war.directory";
     public static final String WEB_HTTP_PORT = "nifi.web.http.port";
@@ -174,8 +182,10 @@ public abstract class NiFiProperties {
     public static final String CLUSTER_NODE_ADDRESS = "nifi.cluster.node.address";
     public static final String CLUSTER_NODE_PROTOCOL_PORT = "nifi.cluster.node.protocol.port";
     public static final String CLUSTER_NODE_PROTOCOL_THREADS = "nifi.cluster.node.protocol.threads";
+    public static final String CLUSTER_NODE_PROTOCOL_MAX_THREADS = "nifi.cluster.node.protocol.max.threads";
     public static final String CLUSTER_NODE_CONNECTION_TIMEOUT = "nifi.cluster.node.connection.timeout";
     public static final String CLUSTER_NODE_READ_TIMEOUT = "nifi.cluster.node.read.timeout";
+    public static final String CLUSTER_NODE_MAX_CONCURRENT_REQUESTS = "nifi.cluster.node.max.concurrent.requests";
     public static final String CLUSTER_FIREWALL_FILE = "nifi.cluster.firewall.file";
     public static final String FLOW_ELECTION_MAX_WAIT_TIME = "nifi.cluster.flow.election.max.wait.time";
     public static final String FLOW_ELECTION_MAX_CANDIDATES = "nifi.cluster.flow.election.max.candidates";
@@ -185,6 +195,9 @@ public abstract class NiFiProperties {
     public static final String ZOOKEEPER_CONNECT_TIMEOUT = "nifi.zookeeper.connect.timeout";
     public static final String ZOOKEEPER_SESSION_TIMEOUT = "nifi.zookeeper.session.timeout";
     public static final String ZOOKEEPER_ROOT_NODE = "nifi.zookeeper.root.node";
+    public static final String ZOOKEEPER_AUTH_TYPE = "nifi.zookeeper.auth.type";
+    public static final String ZOOKEEPER_KERBEROS_REMOVE_HOST_FROM_PRINCIPAL = "nifi.zookeeper.kerberos.removeHostFromPrincipal";
+    public static final String ZOOKEEPER_KERBEROS_REMOVE_REALM_FROM_PRINCIPAL = "nifi.zookeeper.kerberos.removeRealmFromPrincipal";
 
     // kerberos properties
     public static final String KERBEROS_KRB5_FILE = "nifi.kerberos.krb5.file";
@@ -218,6 +231,7 @@ public abstract class NiFiProperties {
     public static final String DEFAULT_FLOWFILE_REPO_PARTITIONS = "256";
     public static final String DEFAULT_FLOWFILE_CHECKPOINT_INTERVAL = "2 min";
     public static final int DEFAULT_MAX_FLOWFILES_PER_CLAIM = 100;
+    public static final String DEFAULT_MAX_APPENDABLE_CLAIM_SIZE = "1 MB";
     public static final int DEFAULT_QUEUE_SWAP_THRESHOLD = 20000;
     public static final String DEFAULT_SWAP_STORAGE_LOCATION = "./flowfile_repository/swap";
     public static final String DEFAULT_SWAP_IN_PERIOD = "1 sec";
@@ -231,10 +245,15 @@ public abstract class NiFiProperties {
     public static final String DEFAULT_ZOOKEEPER_CONNECT_TIMEOUT = "3 secs";
     public static final String DEFAULT_ZOOKEEPER_SESSION_TIMEOUT = "3 secs";
     public static final String DEFAULT_ZOOKEEPER_ROOT_NODE = "/nifi";
+    public static final String DEFAULT_ZOOKEEPER_AUTH_TYPE = "default";
+    public static final String DEFAULT_ZOOKEEPER_KERBEROS_REMOVE_HOST_FROM_PRINCIPAL  = "true";
+    public static final String DEFAULT_ZOOKEEPER_KERBEROS_REMOVE_REALM_FROM_PRINCIPAL  = "true";
     public static final String DEFAULT_SITE_TO_SITE_HTTP_TRANSACTION_TTL = "30 secs";
     public static final String DEFAULT_FLOW_CONFIGURATION_ARCHIVE_ENABLED = "true";
     public static final String DEFAULT_FLOW_CONFIGURATION_ARCHIVE_MAX_TIME = "30 days";
     public static final String DEFAULT_FLOW_CONFIGURATION_ARCHIVE_MAX_STORAGE = "500 MB";
+    public static final String DEFAULT_SECURITY_USER_OIDC_CONNECT_TIMEOUT = "5 secs";
+    public static final String DEFAULT_SECURITY_USER_OIDC_READ_TIMEOUT = "5 secs";
 
     // cluster common defaults
     public static final String DEFAULT_CLUSTER_PROTOCOL_HEARTBEAT_INTERVAL = "5 sec";
@@ -243,9 +262,11 @@ public abstract class NiFiProperties {
     public static final String DEFAULT_CLUSTER_PROTOCOL_MULTICAST_SERVICE_LOCATOR_ATTEMPTS_DELAY = "1 sec";
     public static final String DEFAULT_CLUSTER_NODE_READ_TIMEOUT = "5 sec";
     public static final String DEFAULT_CLUSTER_NODE_CONNECTION_TIMEOUT = "5 sec";
+    public static final int DEFAULT_CLUSTER_NODE_MAX_CONCURRENT_REQUESTS = 100;
 
     // cluster node defaults
-    public static final int DEFAULT_CLUSTER_NODE_PROTOCOL_THREADS = 2;
+    public static final int DEFAULT_CLUSTER_NODE_PROTOCOL_THREADS = 10;
+    public static final int DEFAULT_CLUSTER_NODE_PROTOCOL_MAX_THREADS = 50;
     public static final String DEFAULT_REQUEST_REPLICATION_CLAIM_TIMEOUT = "15 secs";
     public static final String DEFAULT_FLOW_ELECTION_MAX_WAIT_TIME = "5 mins";
 
@@ -559,6 +580,10 @@ public abstract class NiFiProperties {
         return getIntegerProperty(WEB_THREADS, DEFAULT_WEB_THREADS);
     }
 
+    public int getClusterNodeMaxConcurrentRequests() {
+        return getIntegerProperty(CLUSTER_NODE_MAX_CONCURRENT_REQUESTS, DEFAULT_CLUSTER_NODE_MAX_CONCURRENT_REQUESTS);
+    }
+
     public File getWebWorkingDirectory() {
         return new File(getProperty(WEB_WORKING_DIR, DEFAULT_WEB_WORKING_DIR));
     }
@@ -678,11 +703,27 @@ public abstract class NiFiProperties {
         }
     }
 
+    /**
+     * @deprecated Use getClusterNodeProtocolCorePoolSize() and getClusterNodeProtocolMaxPoolSize() instead
+     */
+    @Deprecated()
     public int getClusterNodeProtocolThreads() {
+        return getClusterNodeProtocolCorePoolSize();
+    }
+
+    public int getClusterNodeProtocolCorePoolSize() {
         try {
             return Integer.parseInt(getProperty(CLUSTER_NODE_PROTOCOL_THREADS));
         } catch (NumberFormatException nfe) {
             return DEFAULT_CLUSTER_NODE_PROTOCOL_THREADS;
+        }
+    }
+
+    public int getClusterNodeProtocolMaxPoolSize() {
+        try {
+            return Integer.parseInt(getProperty(CLUSTER_NODE_PROTOCOL_MAX_THREADS));
+        } catch (NumberFormatException nfe) {
+            return DEFAULT_CLUSTER_NODE_PROTOCOL_MAX_THREADS;
         }
     }
 
@@ -773,17 +814,90 @@ public abstract class NiFiProperties {
     }
 
     /**
+     * Returns true if the login identity provider has been configured.
+     *
+     * @return true if the login identity provider has been configured
+     */
+    public boolean isLoginIdentityProviderEnabled() {
+        return !StringUtils.isBlank(getProperty(NiFiProperties.SECURITY_USER_LOGIN_IDENTITY_PROVIDER));
+    }
+
+    /**
+     * Returns whether an OpenId Connect (OIDC) URL is set.
+     *
+     * @return whether an OpenId Connection URL is set
+     */
+    public boolean isOidcEnabled() {
+        return !StringUtils.isBlank(getOidcDiscoveryUrl());
+    }
+
+    /**
+     * Returns the OpenId Connect (OIDC) URL. Null otherwise.
+     *
+     * @return OIDC discovery url
+     */
+    public String getOidcDiscoveryUrl() {
+        return getProperty(SECURITY_USER_OIDC_DISCOVERY_URL);
+    }
+
+    /**
+     * Returns the OpenId Connect connect timeout. Non null.
+     *
+     * @return OIDC connect timeout
+     */
+    public String getOidcConnectTimeout() {
+        return getProperty(SECURITY_USER_OIDC_CONNECT_TIMEOUT, DEFAULT_SECURITY_USER_OIDC_CONNECT_TIMEOUT);
+    }
+
+    /**
+     * Returns the OpenId Connect read timeout. Non null.
+     *
+     * @return OIDC read timeout
+     */
+    public String getOidcReadTimeout() {
+        return getProperty(SECURITY_USER_OIDC_READ_TIMEOUT, DEFAULT_SECURITY_USER_OIDC_READ_TIMEOUT);
+    }
+
+    /**
+     * Returns the OpenId Connect client id.
+     *
+     * @return OIDC client id
+     */
+    public String getOidcClientId() {
+        return getProperty(SECURITY_USER_OIDC_CLIENT_ID);
+    }
+
+    /**
+     * Returns the OpenId Connect client secret.
+     *
+     * @return OIDC client secret
+     */
+    public String getOidcClientSecret() {
+        return getProperty(SECURITY_USER_OIDC_CLIENT_SECRET);
+    }
+
+    /**
+     * Returns the preferred json web signature algorithm. May be null/blank.
+     *
+     * @return OIDC preferred json web signature algorithm
+     */
+    public String getOidcPreferredJwsAlgorithm() {
+        return getProperty(SECURITY_USER_OIDC_PREFERRED_JWSALGORITHM);
+    }
+
+    /**
      * Returns true if client certificates are required for REST API. Determined
      * if the following conditions are all true:
      * <p>
      * - login identity provider is not populated
      * - Kerberos service support is not enabled
+     * - openid connect is not enabled
      *
      * @return true if client certificates are required for access to the REST
      * API
      */
     public boolean isClientAuthRequiredForRestApi() {
-        return StringUtils.isBlank(getProperty(NiFiProperties.SECURITY_USER_LOGIN_IDENTITY_PROVIDER)) && !isKerberosSpnegoSupportEnabled();
+        return !isLoginIdentityProviderEnabled() && !isKerberosSpnegoSupportEnabled() && !isOidcEnabled();
     }
 
     public InetSocketAddress getNodeApiAddress() {
@@ -900,6 +1014,15 @@ public abstract class NiFiProperties {
         return provenanceRepositoryPaths;
     }
 
+    /**
+     * Returns the number of claims to keep open for writing. Ideally, this will be at
+     * least as large as the number of threads that will be updating the repository simultaneously but we don't want
+     * to get too large because it will hold open up to this many FileOutputStreams.
+     *
+     * Default is {@link #DEFAULT_MAX_FLOWFILES_PER_CLAIM}
+     *
+     * @return the maximum number of flow files per claim
+     */
     public int getMaxFlowFilesPerClaim() {
         try {
             return Integer.parseInt(getProperty(MAX_FLOWFILES_PER_CLAIM));
@@ -908,8 +1031,16 @@ public abstract class NiFiProperties {
         }
     }
 
+    /**
+     * Returns the maximum size, in bytes, that claims should grow before writing a new file. This means that we won't continually write to one
+     * file that keeps growing but gives us a chance to bunch together many small files.
+     *
+     * Default is {@link #DEFAULT_MAX_APPENDABLE_CLAIM_SIZE}
+     *
+     * @return the maximum appendable claim size
+     */
     public String getMaxAppendableClaimSize() {
-        return getProperty(MAX_APPENDABLE_CLAIM_SIZE);
+        return getProperty(MAX_APPENDABLE_CLAIM_SIZE, DEFAULT_MAX_APPENDABLE_CLAIM_SIZE);
     }
 
     public String getProperty(final String key, final String defaultValue) {
