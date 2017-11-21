@@ -48,7 +48,6 @@ import org.apache.nifi.web.api.dto.ProcessorConfigDTO;
 import org.apache.nifi.web.api.dto.ProcessorDTO;
 import org.apache.nifi.web.api.dto.RemoteProcessGroupDTO;
 import org.apache.nifi.web.api.dto.ReportingTaskDTO;
-import org.jasypt.exceptions.EncryptionOperationNotPossibleException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.w3c.dom.Element;
@@ -367,6 +366,10 @@ public class FlowFromDOMFactory {
         }
 
         descriptor.setId(id);
+
+        final String targetId = getString(element, "targetId");
+        descriptor.setTargetId(targetId == null ? id : targetId);
+
         descriptor.setName(getString(element, "name"));
         descriptor.setComments(getString(element, "comments"));
         descriptor.setConcurrentlySchedulableTaskCount(getInt(element, "maxConcurrentTasks"));
@@ -508,7 +511,7 @@ public class FlowFromDOMFactory {
         if (value != null && value.startsWith(FlowSerializer.ENC_PREFIX) && value.endsWith(FlowSerializer.ENC_SUFFIX)) {
             try {
                 return encryptor.decrypt(value.substring(FlowSerializer.ENC_PREFIX.length(), value.length() - FlowSerializer.ENC_SUFFIX.length()));
-            } catch (EncryptionException | EncryptionOperationNotPossibleException e) {
+            } catch (EncryptionException e) {
                 final String moreDescriptiveMessage = "There was a problem decrypting a sensitive flow configuration value. " +
                         "Check that the nifi.sensitive.props.key value in nifi.properties matches the value used to encrypt the flow.xml.gz file";
                 logger.error(moreDescriptiveMessage, e);
