@@ -27,6 +27,8 @@
     <packaging>pom</packaging>
 
     <modules>
+        <module>nifi-gcp-services-api</module>
+        <module>nifi-gcp-services-api-nar</module>
         <module>nifi-gcp-processors</module>
         <module>nifi-gcp-nar</module>
     </modules>

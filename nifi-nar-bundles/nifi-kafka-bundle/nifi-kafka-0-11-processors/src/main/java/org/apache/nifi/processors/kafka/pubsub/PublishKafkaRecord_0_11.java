@@ -26,6 +26,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -66,10 +67,7 @@ import org.apache.nifi.serialization.record.RecordSet;
 @Tags({"Apache", "Kafka", "Record", "csv", "json", "avro", "logs", "Put", "Send", "Message", "PubSub", "0.11.x"})
 @CapabilityDescription("Sends the contents of a FlowFile as individual records to Apache Kafka using the Kafka 0.11.x Producer API. "
     + "The contents of the FlowFile are expected to be record-oriented data that can be read by the configured Record Reader. "
-    + " Please note there are cases where the publisher can get into an indefinite stuck state.  We are closely monitoring"
-    + " how this evolves in the Kafka community and will take advantage of those fixes as soon as we can.  In the meantime"
-    + " it is possible to enter states where the only resolution will be to restart the JVM NiFi runs on. The complementary NiFi "
-    + "processor for fetching messages is ConsumeKafka_0_11_Record.")
+    + "The complementary NiFi processor for fetching messages is ConsumeKafka_0_11_Record.")
 @InputRequirement(InputRequirement.Requirement.INPUT_REQUIRED)
 @DynamicProperty(name = "The name of a Kafka configuration property.", value = "The value of a given Kafka configuration property.",
     description = "These properties will be added on the Kafka configuration after loading any provided configuration properties."
@@ -381,7 +379,10 @@ public class PublishKafkaRecord_0_11 extends AbstractProcessor {
             }
 
             // Send each FlowFile to Kafka asynchronously.
-            for (final FlowFile flowFile : flowFiles) {
+            final Iterator<FlowFile> itr = flowFiles.iterator();
+            while (itr.hasNext()) {
+                final FlowFile flowFile = itr.next();
+
                 if (!isScheduled()) {
                     // If stopped, re-queue FlowFile instead of sending it
                     if (useTransactions) {
@@ -391,6 +392,7 @@ public class PublishKafkaRecord_0_11 extends AbstractProcessor {
                     }
 
                     session.transfer(flowFile);
+                    itr.remove();
                     continue;
                 }
 

@@ -27,6 +27,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -111,6 +112,18 @@ public class PersistentMapCache implements MapCache {
     }
 
     @Override
+    public Map<ByteBuffer, ByteBuffer> subMap(List<ByteBuffer> keys) throws IOException {
+        if (keys == null) {
+            return null;
+        }
+        Map<ByteBuffer, ByteBuffer> results = new HashMap<>(keys.size());
+        for (ByteBuffer key : keys) {
+            results.put(key, wrapped.get(key));
+        }
+        return results;
+    }
+
+    @Override
     public MapCacheRecord fetch(ByteBuffer key) throws IOException {
         return wrapped.fetch(key);
     }
@@ -156,6 +169,11 @@ public class PersistentMapCache implements MapCache {
             }
         }
         return removeResult;
+    }
+
+    @Override
+    public Set<ByteBuffer> keySet() throws IOException {
+        return wrapped.keySet();
     }
 
     @Override

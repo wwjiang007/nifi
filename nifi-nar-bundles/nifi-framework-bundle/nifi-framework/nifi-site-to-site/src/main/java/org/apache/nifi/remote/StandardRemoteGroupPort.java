@@ -42,6 +42,7 @@ import org.apache.nifi.remote.exception.ProtocolException;
 import org.apache.nifi.remote.exception.UnknownPortException;
 import org.apache.nifi.remote.exception.UnreachableClusterException;
 import org.apache.nifi.remote.protocol.DataPacket;
+import org.apache.nifi.remote.protocol.SiteToSiteTransportProtocol;
 import org.apache.nifi.remote.protocol.http.HttpProxy;
 import org.apache.nifi.remote.util.SiteToSiteRestApiClient;
 import org.apache.nifi.remote.util.StandardDataPacket;
@@ -90,7 +91,7 @@ public class StandardRemoteGroupPort extends RemoteGroupPort {
     private final SSLContext sslContext;
     private final TransferDirection transferDirection;
     private final NiFiProperties nifiProperties;
-    private final String targetId;
+    private volatile String targetId;
 
     private final AtomicReference<SiteToSiteClient> clientRef = new AtomicReference<>();
 
@@ -116,12 +117,17 @@ public class StandardRemoteGroupPort extends RemoteGroupPort {
 
     @Override
     public String getTargetIdentifier() {
-        return targetId == null ? getIdentifier() : targetId;
+        final String target = this.targetId;
+        return target == null ? getIdentifier() : target;
     }
 
-    private static File getPeerPersistenceFile(final String portId, final NiFiProperties nifiProperties) {
+    public void setTargetIdentifier(final String targetId) {
+        this.targetId = targetId;
+    }
+
+    private static File getPeerPersistenceFile(final String portId, final NiFiProperties nifiProperties, final SiteToSiteTransportProtocol transportProtocol) {
         final File stateDir = nifiProperties.getPersistentStateDirectory();
-        return new File(stateDir, portId + ".peers");
+        return new File(stateDir, String.format("%s_%s.peers", portId, transportProtocol.name()));
     }
 
     @Override
@@ -175,7 +181,7 @@ public class StandardRemoteGroupPort extends RemoteGroupPort {
                 .sslContext(sslContext)
                 .useCompression(isUseCompression())
                 .eventReporter(remoteGroup.getEventReporter())
-                .peerPersistenceFile(getPeerPersistenceFile(getIdentifier(), nifiProperties))
+                .peerPersistenceFile(getPeerPersistenceFile(getIdentifier(), nifiProperties, remoteGroup.getTransportProtocol()))
                 .nodePenalizationPeriod(penalizationMillis, TimeUnit.MILLISECONDS)
                 .timeout(remoteGroup.getCommunicationsTimeout(TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS)
                 .transportProtocol(remoteGroup.getTransportProtocol())
